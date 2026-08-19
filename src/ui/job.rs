@@ -217,6 +217,86 @@ pub fn start(
     }
 }
 
+/// Setzt einen unterbrochenen Job fort (§7.2): nutzt das bestehende Journal und
+/// führt `execute` mit `resume = true` aus.
+pub fn start_resume(
+    mut journal: Journal,
+    plan: MovePlan,
+    rate_bytes: u64,
+    verify: bool,
+    ctx: egui::Context,
+) -> RunningJob {
+    let (tx, rx) = channel();
+    let cancel = Arc::new(AtomicBool::new(false));
+    let worker_cancel = cancel.clone();
+
+    let handle = std::thread::spawn(move || {
+        let _ = tx.send(Msg::Started {
+            name: plan.name.clone(),
+            bytes_total: plan.bytes_total,
+        });
+        ctx.request_repaint();
+
+        let tx_p = tx.clone();
+        let ctx_p = ctx.clone();
+        let progress = move |st: &Stats, rate_mbps: f64| {
+            let _ = tx_p.send(Msg::Progress { bytes_done: st.bytes, rate_mbps });
+            ctx_p.request_repaint();
+        };
+
+        let mut moved = 0usize;
+        match execute::execute(&plan, rate_bytes, true, verify, worker_cancel.clone(), &mut journal, progress) {
+            Ok(_) => {
+                moved = 1;
+                let moved_comps: Vec<String> = plan
+                    .items
+                    .iter()
+                    .filter(|i| i.action != Action::DeleteSource)
+                    .map(|i| i.kind.label().to_string())
+                    .collect();
+                let deleted_comps: Vec<String> = plan
+                    .items
+                    .iter()
+                    .filter(|i| i.action == Action::DeleteSource)
+                    .map(|i| i.kind.label().to_string())
+                    .collect();
+                let _ = tx.send(Msg::Done {
+                    name: plan.name.clone(),
+                    moved: moved_comps,
+                    deleted: deleted_comps,
+                });
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {
+                let _ = execute::cleanup_target_partials(&journal);
+                let _ = tx.send(Msg::Cancelled);
+                ctx.request_repaint();
+                return;
+            }
+            Err(e) => {
+                let _ = journal.set_state(JobState::Failed);
+                let _ = tx.send(Msg::Failed { name: plan.name.clone(), error: e.to_string() });
+            }
+        }
+        let _ = tx.send(Msg::AllDone { moved, total: 1 });
+        ctx.request_repaint();
+    });
+
+    RunningJob {
+        rx,
+        cancel,
+        handle: Some(handle),
+        queue_total: 1,
+        queue_done: 0,
+        current_name: String::new(),
+        bytes_done: 0,
+        bytes_total: 0,
+        rate_mbps: 0.0,
+        log: Vec::new(),
+        finished: false,
+        cancelling: false,
+    }
+}
+
 impl Drop for RunningJob {
     fn drop(&mut self) {
         // Beim Verwerfen sauber abbrechen und auf den Worker warten.

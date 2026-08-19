@@ -16,6 +16,7 @@ use std::time::{Duration, Instant};
 
 use eframe::egui;
 
+use crate::mover::journal::{JobState, Journal};
 use crate::mover::plan::{ComponentChoice, MovePlan};
 use crate::mover::preconditions;
 use crate::steam::game::Game;
@@ -50,6 +51,13 @@ enum Job {
     Finished(String),
 }
 
+#[derive(Clone, Copy)]
+enum RecoveryAction {
+    Cleanup,
+    Finish,
+    Resume,
+}
+
 pub struct BargeApp {
     load_rx: Option<Receiver<Result<Vec<LibraryView>, String>>>,
     load_error: Option<String>,
@@ -67,7 +75,10 @@ pub struct BargeApp {
     /// Farbschema ("dark" | "light" | "contrast"), persistiert.
     theme: String,
     job: Job,
-    incomplete_jobs: usize,
+    /// Beim Start gefundene, unvollendete Move-Jobs (Recovery, §7.2).
+    incomplete: Vec<Journal>,
+    /// Recovery-Fenster offen?
+    show_recovery: bool,
     /// Quelle/Ziel nur beim ersten Laden vorbelegen, danach die Wahl des
     /// Nutzers über Reloads hinweg erhalten.
     initialized: bool,
@@ -121,7 +132,8 @@ impl BargeApp {
             grid_view: cfg.grid_view,
             theme: cfg.theme,
             job: Job::Idle,
-            incomplete_jobs: crate::mover::journal::Journal::scan_incomplete().len(),
+            incomplete: crate::mover::journal::Journal::scan_incomplete(),
+            show_recovery: false,
             initialized: false,
             zoom_factor: cfg.zoom_factor,
             window_size: (cfg.window_w, cfg.window_h),
@@ -273,12 +285,49 @@ impl BargeApp {
             .collect()
     }
 
+    /// Führt eine Recovery-Aktion aus (§7.2) und aktualisiert die Ansicht.
+    fn perform_recovery(&mut self, ctx: &egui::Context, jrnl: Journal, action: RecoveryAction) {
+        match action {
+            RecoveryAction::Cleanup => {
+                if let Err(e) = crate::mover::execute::cleanup_target_partials(&jrnl) {
+                    self.error_modal = Some(format!("Verwerfen fehlgeschlagen: {}", e));
+                }
+                self.reload(ctx);
+                if self.incomplete.is_empty() {
+                    self.show_recovery = false;
+                }
+            }
+            RecoveryAction::Finish => {
+                if let Err(e) = crate::mover::execute::finish_committed(&jrnl) {
+                    self.error_modal = Some(format!("Abschließen fehlgeschlagen: {}", e));
+                }
+                self.reload(ctx);
+                if self.incomplete.is_empty() {
+                    self.show_recovery = false;
+                }
+            }
+            RecoveryAction::Resume => {
+                match crate::mover::plan::MovePlan::rebuild_from_source(&jrnl) {
+                    Ok(plan) => {
+                        self.show_recovery = false;
+                        let rate = self.limit_mbps.saturating_mul(1_000_000);
+                        self.job =
+                            Job::Running(job::start_resume(jrnl, plan, rate, self.verify, ctx.clone()));
+                    }
+                    Err(e) => {
+                        self.error_modal = Some(format!("Fortsetzen nicht möglich: {}", e));
+                    }
+                }
+            }
+        }
+    }
+
     fn reload(&mut self, ctx: &egui::Context) {
         self.selected.clear();
         self.comp_choice.clear();
         self.job = Job::Idle;
         self.load_error = None;
-        self.incomplete_jobs = crate::mover::journal::Journal::scan_incomplete().len();
+        self.incomplete = crate::mover::journal::Journal::scan_incomplete();
         self.load_rx = Some(spawn_load(ctx.clone()));
     }
 }
@@ -398,15 +447,6 @@ impl eframe::App for BargeApp {
             if settings::options_row(ui, &mut self.limit_mbps, &mut self.dry_run, &mut self.verify) {
                 open_dialog = true;
             }
-            if self.incomplete_jobs > 0 {
-                ui.colored_label(
-                    egui::Color32::from_rgb(0xd0, 0x90, 0x30),
-                    format!(
-                        "(!) {} unvollendete(r) Move-Job(s) — im Terminal `barge recover`",
-                        self.incomplete_jobs
-                    ),
-                );
-            }
             ui.add_space(4.0);
         });
         if let Some(z) = new_zoom {
@@ -452,6 +492,7 @@ impl eframe::App for BargeApp {
         let summary = self.selection_summary();
         let mut start_move = false;
         let mut do_reload = false;
+        let mut open_recovery = false;
         let mut copy_to_clipboard: Option<String> = None;
 
         egui::TopBottomPanel::bottom("actions").show(ctx, |ui| {
@@ -493,6 +534,25 @@ impl eframe::App for BargeApp {
                             ui.colored_label(egui::Color32::LIGHT_RED, "Quelle und Ziel sind identisch");
                         } else if summary.count == 0 {
                             ui.label("keine Spiele ausgewählt");
+                        }
+
+                        // Recovery-Button, falls unvollendete Jobs existieren (§7.2).
+                        if !self.incomplete.is_empty() {
+                            ui.add_space(6.0);
+                            if ui
+                                .add(egui::Button::new(egui::RichText::new(format!(
+                                    "(!) Unvollendete Jobs ({})…",
+                                    self.incomplete.len()
+                                ))))
+                                .on_hover_text(
+                                    "Beim letzten Mal unterbrochene Move-Jobs (z. B. durch Absturz \
+                                     oder Abbruch). Hier ansehen, aufräumen oder fortsetzen — kein \
+                                     Terminal nötig.",
+                                )
+                                .clicked()
+                            {
+                                open_recovery = true;
+                            }
                         }
                     });
                 }
@@ -620,6 +680,82 @@ impl eframe::App for BargeApp {
         }
         if do_reload {
             self.reload(ctx);
+        }
+        if open_recovery {
+            self.show_recovery = true;
+        }
+
+        // --- Recovery-Fenster: unvollendete Jobs mit erklärten Aktionen (§7.2)
+        let mut recovery_action: Option<(Journal, RecoveryAction)> = None;
+        let mut close_recovery = false;
+        if self.show_recovery {
+            egui::Window::new("Unvollendete Move-Jobs")
+                .collapsible(false)
+                .resizable(true)
+                .default_width(600.0)
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .show(ctx, |ui| {
+                    ui.label(
+                        "Diese Move-Jobs wurden nicht abgeschlossen (z. B. Absturz oder Abbruch). \
+                         Wähle je Job, was passieren soll:",
+                    );
+                    ui.add_space(6.0);
+                    egui::ScrollArea::vertical().max_height(380.0).show(ui, |ui| {
+                        for jrnl in &self.incomplete {
+                            egui::Frame::group(ui.style()).show(ui, |ui| {
+                                ui.strong(&jrnl.name);
+                                let zustand = match jrnl.state {
+                                    JobState::Committed => "am Ziel vollständig, Quelle noch nicht bereinigt",
+                                    JobState::Failed => "fehlgeschlagen",
+                                    _ => "unterbrochen (Kopieren nicht beendet)",
+                                };
+                                ui.label(format!("AppID {} · {}", jrnl.appid, zustand));
+                                ui.weak(format!(
+                                    "{}  →  {}",
+                                    jrnl.source_library.display(),
+                                    jrnl.target_library.display()
+                                ));
+                                ui.add_space(4.0);
+                                ui.horizontal(|ui| {
+                                    if jrnl.state == JobState::Committed {
+                                        if ui.button("Abschließen")
+                                            .on_hover_text("Das Ziel ist bereits vollständig kopiert. Entfernt nur noch die Reste in der Quell-Bibliothek und schließt den Job sauber ab.")
+                                            .clicked()
+                                        {
+                                            recovery_action = Some((jrnl.clone(), RecoveryAction::Finish));
+                                        }
+                                    } else {
+                                        if ui.button("Fortsetzen")
+                                            .on_hover_text("Setzt den unterbrochenen Move fort. Bereits kopierte Dateien werden per Größe + Datum übersprungen, der Rest wird kopiert.")
+                                            .clicked()
+                                        {
+                                            recovery_action = Some((jrnl.clone(), RecoveryAction::Resume));
+                                        }
+                                        if ui.button("Verwerfen")
+                                            .on_hover_text("Löscht die unfertige Ziel-Kopie (.partial). Die Quelle bleibt unangetastet — das Spiel bleibt in der Quell-Bibliothek spielbar.")
+                                            .clicked()
+                                        {
+                                            recovery_action = Some((jrnl.clone(), RecoveryAction::Cleanup));
+                                        }
+                                    }
+                                });
+                            });
+                            ui.add_space(4.0);
+                        }
+                    });
+                    ui.add_space(6.0);
+                    ui.vertical_centered(|ui| {
+                        if ui.button("Schließen").clicked() {
+                            close_recovery = true;
+                        }
+                    });
+                });
+        }
+        if close_recovery {
+            self.show_recovery = false;
+        }
+        if let Some((jrnl, action)) = recovery_action {
+            self.perform_recovery(ctx, jrnl, action);
         }
 
         // --- Fehler-Fenster (z. B. ungültige Bibliothek) mit OK-Rückkehr
