@@ -2,14 +2,23 @@
 
 use eframe::egui;
 
-/// Zentrierte Optionszeile: max. Rate, „unbegrenzt“, „Trockenlauf“.
+/// Zentrierte Optionszeile: max. Rate, „unbegrenzt“, „Verifizieren“,
+/// „Trockenlauf“ — plus ganz rechts der „Bibliothek hinzufügen“-Knopf.
+/// Gibt `true` zurück, wenn dieser geklickt wurde.
 ///
-/// Zentriert über einen führenden `add_space` (die Zeilenbreite ist in Punkten
-/// konstant, unabhängig vom Zoom, daher genügt eine feste Schätzbreite).
-pub fn options_row(ui: &mut egui::Ui, limit_mbps: &mut u64, dry_run: &mut bool, verify: &mut bool) {
+/// Die Optionen werden über einen führenden `add_space` zentriert (Zeilenbreite
+/// in Punkten ist zoom-unabhängig), der Knopf rechtsbündig geschoben.
+pub fn options_row(
+    ui: &mut egui::Ui,
+    limit_mbps: &mut u64,
+    dry_run: &mut bool,
+    verify: &mut bool,
+) -> bool {
+    let mut add_library = false;
     ui.horizontal(|ui| {
         const CONTENT_W: f32 = 600.0;
-        let space = ((ui.available_width() - CONTENT_W) * 0.5).max(0.0);
+        const BTN_W: f32 = 200.0;
+        let space = ((ui.available_width() - CONTENT_W - BTN_W) * 0.5).max(0.0);
         ui.add_space(space);
 
         // §6.1: Das Label heißt bewusst „max. Rate“, nicht „Rate“.
@@ -30,5 +39,17 @@ pub fn options_row(ui: &mut egui::Ui, limit_mbps: &mut u64, dry_run: &mut bool, 
             .on_hover_text("Nach dem Kopieren Dateizahl/Größen/mtimes vergleichen (§7.3)");
         ui.checkbox(dry_run, egui::RichText::new("Trockenlauf").size(15.0))
             .on_hover_text("Alle Prüfungen und der vollständige Plan, ohne eine Datei anzufassen (§8.4)");
+
+        // Knopf ganz rechts.
+        let rem = (ui.available_width() - BTN_W).max(0.0);
+        ui.add_space(rem);
+        if ui
+            .button("Bibliothek hinzufügen")
+            .on_hover_text("Einen weiteren Steam-Library-Ordner hinzufügen (§8.3)")
+            .clicked()
+        {
+            add_library = true;
+        }
     });
+    add_library
 }

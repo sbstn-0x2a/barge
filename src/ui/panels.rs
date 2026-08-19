@@ -291,9 +291,13 @@ pub fn target_panel(
         .striped(true)
         .id_salt("target_table")
         .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+        .column(Column::exact(30.0)) // Cover
         .column(Column::remainder().at_least(120.0))
         .column(Column::auto())
         .header(HEADER_H, |mut header| {
+            header.col(|ui| {
+                ui.strong("");
+            });
             header.col(|ui| {
                 ui.strong("Spiel");
             });
@@ -303,7 +307,8 @@ pub fn target_panel(
         })
         .body(|mut body| {
             for row in &lib.games {
-                body.row(20.0, |mut tr| {
+                body.row(42.0, |mut tr| {
+                    tr.col(|ui| cover_cell(ui, &row.cover));
                     tr.col(|ui| {
                         ui.horizontal(|ui| {
                             ui.add(egui::Label::new(&row.name).truncate());

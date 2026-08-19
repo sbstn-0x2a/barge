@@ -74,6 +74,9 @@ pub struct BargeApp {
     panel_w: f32,
     /// Zuletzt gespeicherter Limit-Wert (zum Erkennen von Änderungen).
     last_limit: u64,
+    /// Vorherige Quell-/Ziel-Auswahl (zum Erkennen von Änderungen).
+    prev_source_idx: usize,
+    prev_target_idx: usize,
     /// Ausstehende, noch nicht gespeicherte Einstellungsänderung.
     dirty: bool,
     last_save: Instant,
@@ -114,6 +117,8 @@ impl BargeApp {
             window_size: (cfg.window_w, cfg.window_h),
             panel_w: cfg.panel_w,
             last_limit: cfg.limit_mbps,
+            prev_source_idx: 0,
+            prev_target_idx: 0,
             dirty: false,
             last_save: Instant::now(),
             dialog_rx: None,
@@ -130,6 +135,13 @@ impl BargeApp {
         cfg.window_h = self.window_size.1;
         cfg.panel_w = self.panel_w;
         cfg.limit_mbps = self.limit_mbps;
+        // Quelle/Ziel nur überschreiben, wenn die Libraries geladen sind.
+        if let Some(l) = self.libraries.get(self.source_idx) {
+            cfg.source_lib = l.path.display().to_string();
+        }
+        if let Some(l) = self.libraries.get(self.target_idx) {
+            cfg.target_lib = l.path.display().to_string();
+        }
         cfg.save();
     }
 
@@ -207,6 +219,15 @@ impl BargeApp {
         }
     }
 
+    /// Index der Library mit diesem (kanonischen) Pfad, falls vorhanden.
+    fn find_library(&self, path: &str) -> Option<usize> {
+        if path.is_empty() {
+            return None;
+        }
+        let want = PathBuf::from(path);
+        self.libraries.iter().position(|l| l.path == want)
+    }
+
     fn selection_summary(&self) -> SelectionSummary {
         let mut s = SelectionSummary::default();
         let Some(src) = self.libraries.get(self.source_idx) else {
@@ -270,15 +291,25 @@ impl eframe::App for BargeApp {
                         self.libraries = views;
                         let n = self.libraries.len();
                         if !self.initialized {
-                            // Erstbelegung: Quelle 0, Ziel 1 (falls vorhanden).
-                            self.source_idx = 0;
-                            self.target_idx = if n > 1 { 1 } else { 0 };
+                            // Erstbelegung: zuletzt gewählte Quelle/Ziel per Pfad
+                            // zuordnen, sonst Default (Quelle 0, Ziel 1). Fehlt
+                            // eine gespeicherte Library, greift der Fallback.
+                            let cfg = crate::config::Config::load();
+                            self.source_idx = self.find_library(&cfg.source_lib).unwrap_or(0);
+                            self.target_idx = self
+                                .find_library(&cfg.target_lib)
+                                .filter(|&t| t != self.source_idx)
+                                .unwrap_or_else(|| {
+                                    if n > 1 && self.source_idx == 0 { 1 } else { 0 }
+                                });
                             self.initialized = true;
                         } else {
                             // Reload: die Wahl des Nutzers behalten, nur begrenzen.
                             self.source_idx = self.source_idx.min(n.saturating_sub(1));
                             self.target_idx = self.target_idx.min(n.saturating_sub(1));
                         }
+                        self.prev_source_idx = self.source_idx;
+                        self.prev_target_idx = self.target_idx;
                     }
                     Err(e) => self.load_error = Some(e),
                 }
@@ -307,13 +338,6 @@ impl eframe::App for BargeApp {
             ui.horizontal(|ui| {
                 ui.heading("barge");
                 ui.label("— Steam-Spiele sicher und gedrosselt verschieben");
-                if ui
-                    .button("+ Bibliothek…")
-                    .on_hover_text("Einen weiteren Steam-Library-Ordner hinzufügen (§8.3)")
-                    .clicked()
-                {
-                    open_dialog = true;
-                }
                 // Zoom-Regler rechts (persistiert).
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.button("A +").on_hover_text("Schrift größer").clicked() {
@@ -327,7 +351,9 @@ impl eframe::App for BargeApp {
                 });
             });
             // Optionszeile zentriert direkt unter dem Titel (§8.1).
-            settings::options_row(ui, &mut self.limit_mbps, &mut self.dry_run, &mut self.verify);
+            if settings::options_row(ui, &mut self.limit_mbps, &mut self.dry_run, &mut self.verify) {
+                open_dialog = true;
+            }
             if self.incomplete_jobs > 0 {
                 ui.colored_label(
                     egui::Color32::from_rgb(0xd0, 0x90, 0x30),
@@ -348,6 +374,12 @@ impl eframe::App for BargeApp {
         // Limit-Änderung (aus der Optionszeile) erkennen und vormerken.
         if self.limit_mbps != self.last_limit {
             self.last_limit = self.limit_mbps;
+            self.dirty = true;
+        }
+        // Geänderte Quelle/Ziel-Auswahl vormerken.
+        if self.source_idx != self.prev_source_idx || self.target_idx != self.prev_target_idx {
+            self.prev_source_idx = self.source_idx;
+            self.prev_target_idx = self.target_idx;
             self.dirty = true;
         }
 
@@ -419,8 +451,12 @@ impl eframe::App for BargeApp {
             ui.add_space(6.0);
         });
 
+        // Gleicher Frame wie das CentralPanel (Ziel), damit beide Panels
+        // identische Innenränder haben und die Kopfzeilen auf einer Höhe liegen.
+        let panel_frame = egui::Frame::central_panel(&ctx.style());
         let src_resp = egui::SidePanel::left("source")
             .resizable(true)
+            .frame(panel_frame)
             .default_width(self.panel_w)
             .show(ctx, |ui| {
                 panels::source_panel(
@@ -547,6 +583,36 @@ fn dry_run_report(queue: &[(Game, MovePlan)]) -> String {
     s
 }
 
+/// Sucht das Hochkant-Cover eines Spiels im Steam-Cache (§3.5). Deckt
+/// lokalisierte Namen (`library_600x900_german.jpg`), `_2x`, das alte flache
+/// Layout und – als Notlösung – ein Header-Bild ab.
+fn find_cover(cache_root: &std::path::Path, appid: u32) -> Option<PathBuf> {
+    let dir = cache_root.join(appid.to_string());
+    if let Ok(rd) = std::fs::read_dir(&dir) {
+        let mut fallback: Option<PathBuf> = None;
+        for e in rd.flatten() {
+            let name = e.file_name();
+            let name = name.to_string_lossy();
+            if name.starts_with("library_600x900") && name.ends_with(".jpg") {
+                if name == "library_600x900.jpg" {
+                    return Some(e.path()); // exakter Treffer bevorzugt
+                }
+                fallback = Some(e.path());
+            }
+        }
+        if fallback.is_some() {
+            return fallback;
+        }
+        let header = dir.join("header.jpg");
+        if header.is_file() {
+            return Some(header);
+        }
+    }
+    // Altes flaches Layout.
+    let flat = cache_root.join(format!("{}_library_600x900.jpg", appid));
+    flat.is_file().then_some(flat)
+}
+
 fn spawn_load(ctx: egui::Context) -> Receiver<Result<Vec<LibraryView>, String>> {
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
@@ -578,20 +644,9 @@ fn spawn_load(ctx: egui::Context) -> Receiver<Result<Vec<LibraryView>, String>> 
                     let present = |k: ComponentKind| {
                         g.components.iter().any(|c| c.kind == k && c.present)
                     };
-                    let cover = cache_root.as_ref().and_then(|cr| {
-                        let id = g.manifest.appid.to_string();
-                        let dir = cr.join(&id);
-                        // Bevorzugt das Hochkant-Cover; Fallbacks für ältere
-                        // Layouts bzw. fehlende Portraits.
-                        let candidates = [
-                            dir.join("library_600x900.jpg"),
-                            dir.join("library_600x900_2x.jpg"),
-                            cr.join(format!("{}_library_600x900.jpg", id)),
-                            dir.join("header.jpg"),
-                            cr.join(format!("{}_header.jpg", id)),
-                        ];
-                        candidates.into_iter().find(|p| p.is_file())
-                    });
+                    let cover = cache_root
+                        .as_ref()
+                        .and_then(|cr| find_cover(cr, g.manifest.appid));
                     GameRow {
                         appid: g.manifest.appid,
                         name: g.manifest.name.clone(),

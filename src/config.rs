@@ -18,6 +18,10 @@ pub struct Config {
     pub panel_w: f32,
     /// Zuletzt eingestellte Bandbreiten-Obergrenze (0 = unbegrenzt).
     pub limit_mbps: u64,
+    /// Zuletzt gewählte Quell-/Ziel-Library (kanonischer Pfad). Beim Start wird
+    /// per Pfad zugeordnet; fehlt die Library, gilt der Default.
+    pub source_lib: String,
+    pub target_lib: String,
     /// Manuell hinzugefügte Library-Pfade (§8.3); werden beim Laden zusätzlich
     /// zu den erkannten Libraries berücksichtigt.
     pub extra_libraries: Vec<String>,
@@ -31,6 +35,8 @@ impl Default for Config {
             window_h: 660.0,
             panel_w: 480.0,
             limit_mbps: 250,
+            source_lib: String::new(),
+            target_lib: String::new(),
             extra_libraries: Vec::new(),
         }
     }
