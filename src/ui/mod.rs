@@ -468,11 +468,15 @@ impl eframe::App for BargeApp {
 
         // Gleicher Frame wie das CentralPanel (Ziel), damit beide Panels
         // identische Innenränder haben und die Kopfzeilen auf einer Höhe liegen.
+        // Breite begrenzen, damit das Panel nie das ganze Fenster einnimmt.
         let panel_frame = egui::Frame::central_panel(&ctx.style());
+        let max_panel = (ctx.screen_rect().width() * 0.7).max(320.0);
         let src_resp = egui::SidePanel::left("source")
             .resizable(true)
             .frame(panel_frame)
-            .default_width(self.panel_w)
+            .min_width(300.0)
+            .max_width(max_panel)
+            .default_width(self.panel_w.min(max_panel))
             .show(ctx, |ui| {
                 panels::source_panel(
                     ui,
@@ -484,8 +488,8 @@ impl eframe::App for BargeApp {
                     &mut self.comp_choice,
                 );
             });
-        // Vom Nutzer gezogene Panelbreite merken (persistieren).
-        let w = src_resp.response.rect.width();
+        // Vom Nutzer gezogene Panelbreite merken (persistieren), begrenzt.
+        let w = src_resp.response.rect.width().clamp(300.0, max_panel);
         if (w - self.panel_w).abs() > 2.0 {
             self.panel_w = w;
             self.dirty = true;

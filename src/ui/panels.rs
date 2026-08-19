@@ -79,73 +79,83 @@ fn cover_cell(ui: &mut egui::Ui, cover: &Option<String>) {
 
 /// Kachel-Ansicht (§8): Cover-Grid. `selected = Some(..)` macht die Kacheln
 /// klickbar (Quelle); `None` = schreibgeschützte Vorschau (Ziel).
+///
+/// Feste Spaltenzahl aus der verfügbaren Breite (garantierter Umbruch, statt
+/// `horizontal_wrapped`, das hier nicht zuverlässig umbrach).
 fn game_grid(ui: &mut egui::Ui, id: &str, games: &[GameRow], mut selected: Option<&mut HashSet<u32>>) {
     const COVER_W: f32 = 104.0;
     const COVER_H: f32 = 156.0;
-    const CELL_W: f32 = 116.0;
+    const CELL_W: f32 = 120.0;
 
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
         .id_salt(id)
         .show(ui, |ui| {
-            ui.horizontal_wrapped(|ui| {
-                for row in games {
-                    let is_sel = selected.as_ref().map_or(false, |s| s.contains(&row.appid));
-                    let inner = ui.scope(|ui| {
-                        ui.set_width(CELL_W);
-                        let fill = if is_sel {
-                            ui.visuals().selection.bg_fill
-                        } else {
-                            egui::Color32::TRANSPARENT
-                        };
-                        egui::Frame::none()
-                            .fill(fill)
-                            .inner_margin(4.0)
-                            .rounding(4.0)
-                            .show(ui, |ui| {
-                                ui.vertical_centered(|ui| {
-                                    match &row.cover {
-                                        Some(uri) => {
-                                            ui.add(
-                                                egui::Image::from_uri(uri.clone())
-                                                    .fit_to_exact_size(egui::vec2(COVER_W, COVER_H)),
-                                            );
+            let cols = ((ui.available_width() / CELL_W).floor() as usize).max(1);
+            egui::Grid::new(format!("{}_grid", id))
+                .num_columns(cols)
+                .spacing([6.0, 10.0])
+                .show(ui, |ui| {
+                    for (i, row) in games.iter().enumerate() {
+                        let is_sel =
+                            selected.as_ref().map_or(false, |s| s.contains(&row.appid));
+                        let inner = ui.scope(|ui| {
+                            ui.set_width(COVER_W);
+                            let fill = if is_sel {
+                                ui.visuals().selection.bg_fill
+                            } else {
+                                egui::Color32::TRANSPARENT
+                            };
+                            egui::Frame::none()
+                                .fill(fill)
+                                .inner_margin(4.0)
+                                .rounding(4.0)
+                                .show(ui, |ui| {
+                                    ui.vertical_centered(|ui| {
+                                        match &row.cover {
+                                            Some(uri) => {
+                                                ui.add(egui::Image::from_uri(uri.clone())
+                                                    .fit_to_exact_size(egui::vec2(COVER_W, COVER_H)));
+                                            }
+                                            None => {
+                                                let (rect, _) = ui.allocate_exact_size(
+                                                    egui::vec2(COVER_W, COVER_H),
+                                                    egui::Sense::hover(),
+                                                );
+                                                ui.painter().rect_filled(
+                                                    rect,
+                                                    4.0,
+                                                    ui.visuals().extreme_bg_color,
+                                                );
+                                            }
                                         }
-                                        None => {
-                                            let (rect, _) = ui.allocate_exact_size(
-                                                egui::vec2(COVER_W, COVER_H),
-                                                egui::Sense::hover(),
-                                            );
-                                            ui.painter().rect_filled(
-                                                rect,
-                                                4.0,
-                                                ui.visuals().extreme_bg_color,
-                                            );
-                                        }
-                                    }
-                                    ui.add_sized(
-                                        [COVER_W, 30.0],
-                                        egui::Label::new(egui::RichText::new(&row.name).small())
-                                            .truncate(),
-                                    );
+                                        ui.add_sized(
+                                            [COVER_W, 30.0],
+                                            egui::Label::new(egui::RichText::new(&row.name).small())
+                                                .truncate(),
+                                        );
+                                    });
                                 });
-                            });
-                    });
+                        });
 
-                    if let Some(sel) = selected.as_deref_mut() {
-                        if row.blocked_reason.is_none() {
-                            let resp = inner.response.interact(egui::Sense::click());
-                            if resp.clicked() {
-                                if is_sel {
-                                    sel.remove(&row.appid);
-                                } else {
-                                    sel.insert(row.appid);
+                        if let Some(sel) = selected.as_deref_mut() {
+                            if row.blocked_reason.is_none() {
+                                let resp = inner.response.interact(egui::Sense::click());
+                                if resp.clicked() {
+                                    if is_sel {
+                                        sel.remove(&row.appid);
+                                    } else {
+                                        sel.insert(row.appid);
+                                    }
                                 }
                             }
                         }
+
+                        if (i + 1) % cols == 0 {
+                            ui.end_row();
+                        }
                     }
-                }
-            });
+                });
         });
 }
 
