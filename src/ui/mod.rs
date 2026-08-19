@@ -665,27 +665,29 @@ fn fetch_cover(cache_dir: &std::path::Path, appid: u32) -> Option<PathBuf> {
     if out.is_file() {
         return Some(out);
     }
-    let urls = [
-        format!("https://cdn.cloudflare.steamstatic.com/steam/apps/{}/library_600x900.jpg", appid),
-        format!("https://cdn.cloudflare.steamstatic.com/steam/apps/{}/header.jpg", appid),
-    ];
-    for url in urls {
-        let Ok(resp) = ureq::get(&url).timeout(std::time::Duration::from_secs(6)).call() else {
-            continue;
-        };
-        let mut bytes = Vec::new();
-        if resp.into_reader().take(16_000_000).read_to_end(&mut bytes).is_ok() && bytes.len() > 200 {
-            if std::fs::write(&out, &bytes).is_ok() {
-                return Some(out);
-            }
-        }
+    // Nur das Hochkant-Cover (2:3) — einheitliche Kachelgröße. Titel ohne
+    // Portrait bekommen einen Platzhalter statt eines Querformat-Headers.
+    let url = format!(
+        "https://cdn.cloudflare.steamstatic.com/steam/apps/{}/library_600x900.jpg",
+        appid
+    );
+    let Ok(resp) = ureq::get(&url).timeout(std::time::Duration::from_secs(6)).call() else {
+        return None;
+    };
+    let mut bytes = Vec::new();
+    if resp.into_reader().take(16_000_000).read_to_end(&mut bytes).is_ok()
+        && bytes.len() > 200
+        && std::fs::write(&out, &bytes).is_ok()
+    {
+        return Some(out);
     }
     None
 }
 
-/// Sucht das Hochkant-Cover eines Spiels im Steam-Cache (§3.5). Deckt
-/// lokalisierte Namen (`library_600x900_german.jpg`), `_2x`, das alte flache
-/// Layout und – als Notlösung – ein Header-Bild ab.
+/// Sucht das Hochkant-Cover (2:3) eines Spiels im Steam-Cache (§3.5). Deckt
+/// lokalisierte Namen (`library_600x900_german.jpg`), `_2x` und das alte flache
+/// Layout ab. Header-Bilder (Querformat) werden bewusst NICHT genutzt, damit
+/// die Kacheln einheitlich groß bleiben.
 fn find_cover(cache_root: &std::path::Path, appid: u32) -> Option<PathBuf> {
     let dir = cache_root.join(appid.to_string());
     if let Ok(rd) = std::fs::read_dir(&dir) {
@@ -702,10 +704,6 @@ fn find_cover(cache_root: &std::path::Path, appid: u32) -> Option<PathBuf> {
         }
         if fallback.is_some() {
             return fallback;
-        }
-        let header = dir.join("header.jpg");
-        if header.is_file() {
-            return Some(header);
         }
     }
     // Altes flaches Layout.
