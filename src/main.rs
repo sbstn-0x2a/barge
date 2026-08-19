@@ -353,22 +353,24 @@ fn cmd_copy(args: &[String]) {
     );
 }
 
-/// `barge move <QUELL-LIB> <ZIEL-LIB> <APPID> [Optionen]`
+/// `barge move <QUELL-LIB> <ZIEL-LIB> <APPID>… [Optionen]`
 ///
-/// Vollständiger, transaktionaler Move eines Spiels mit Journal und
-/// Crash-Recovery (Stufe 3, §7). Kopiert alle Komponenten (§4) nach `.partial`,
-/// benennt atomar um, räumt dann erst die Quelle ab.
+/// Vollständiger, transaktionaler Move mit voller Vorbedingungsprüfung (§5),
+/// Journal + Crash-Recovery (§7) und optionalem Trockenlauf (§8.4). Mehrere
+/// AppIDs werden als Warteschlange nacheinander verarbeitet (§14).
 fn cmd_move(args: &[String]) {
     let mut positional: Vec<&String> = Vec::new();
     let mut limit_mbps: u64 = 250;
     let mut delete_shadercache = true;
     let mut crash_after_mb: u64 = 0;
+    let mut dry_run = false;
 
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
             "--unlimited" => limit_mbps = 0,
             "--keep-shadercache" => delete_shadercache = false,
+            "--dry-run" => dry_run = true,
             "--limit" => limit_mbps = parse_num(it.next(), "--limit"),
             // Nur für Tests: nach N MB hart abbrechen (simuliert kill -9, §12).
             "--crash-after-mb" => crash_after_mb = parse_num(it.next(), "--crash-after-mb"),
@@ -380,95 +382,154 @@ fn cmd_move(args: &[String]) {
         }
     }
 
-    if positional.len() != 3 {
-        eprintln!("Aufruf: barge move <QUELL-LIB> <ZIEL-LIB> <APPID> [--limit MB/s] [--keep-shadercache]");
+    if positional.len() < 3 {
+        eprintln!("Aufruf: barge move <QUELL-LIB> <ZIEL-LIB> <APPID>… [--dry-run] [--limit MB/s] [--keep-shadercache]");
         std::process::exit(2);
     }
     let source = normalize_lib_or_exit(positional[0]);
     let target = normalize_lib_or_exit(positional[1]);
-    let appid: u32 = positional[2].parse().unwrap_or_else(|_| {
-        eprintln!("AppID muss eine Zahl sein: {}", positional[2]);
-        std::process::exit(2);
-    });
-
-    // --- Spiel laden
     let src_apps = source.join("steamapps");
-    let manifest_path = src_apps.join(format!("appmanifest_{}.acf", appid));
-    let m = match manifest::read(&manifest_path) {
-        Ok(m) => m,
-        Err(e) => {
-            eprintln!("Spiel nicht in Quell-Library: {}", e);
+
+    // --- Warteschlange aufbauen: je AppID Spiel laden und Plan bilden (§14).
+    let mut queue: Vec<(Game, MovePlan)> = Vec::new();
+    for raw in &positional[2..] {
+        let appid: u32 = match raw.parse() {
+            Ok(v) => v,
+            Err(_) => {
+                eprintln!("AppID muss eine Zahl sein: {}", raw);
+                std::process::exit(2);
+            }
+        };
+        let manifest_path = src_apps.join(format!("appmanifest_{}.acf", appid));
+        let m = match manifest::read(&manifest_path) {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!("Spiel {} nicht in Quell-Library: {}", appid, e);
+                std::process::exit(2);
+            }
+        };
+        let game = Game::from_manifest(m, &source, &src_apps);
+        let plan = MovePlan::new(&game, &target, delete_shadercache);
+        if plan.items.is_empty() {
+            eprintln!("AppID {}: nichts zu verschieben (keine Komponenten gefunden).", appid);
             std::process::exit(2);
         }
+        queue.push((game, plan));
+    }
+
+    let limit_label = if limit_mbps == 0 {
+        "unbegrenzt".to_string()
+    } else {
+        format!("max. {} MB/s", limit_mbps)
     };
-    let game = Game::from_manifest(m, &source, &src_apps);
-
-    // --- Minimal-Vorbedingungen (§5) — der volle Satz folgt in Stufe 4.
-    if steam::discovery::steam_running() {
-        eprintln!("ABBRUCH: Steam läuft. Bitte Steam beenden (§5.1) — kein „trotzdem fortfahren\".");
-        std::process::exit(4);
-    }
-    if let Some(reason) = game.manifest.blocked_reason() {
-        eprintln!("ABBRUCH: {} — {}", game.manifest.name, reason);
-        std::process::exit(5);
-    }
-
-    let plan = MovePlan::new(&game, &target, delete_shadercache);
-    if plan.items.is_empty() {
-        eprintln!("Nichts zu verschieben (keine Komponenten gefunden).");
-        std::process::exit(2);
-    }
-    // §5.5 — kein Zielkonflikt: nichts überschreiben.
-    for item in &plan.items {
-        if item.action != mover::plan::Action::DeleteSource && item.dst_final.exists() {
-            eprintln!(
-                "ABBRUCH: Ziel existiert bereits: {} (§5.5, kein Überschreiben)",
-                item.dst_final.display()
-            );
-            std::process::exit(3);
-        }
-    }
-
-    println!("barge move — {} (AppID {})", plan.name, appid);
+    println!("barge move{}", if dry_run { " — TROCKENLAUF (§8.4, keine Änderung)" } else { "" });
     println!("  Quelle : {}", source.display());
     println!("  Ziel   : {}", target.display());
-    println!("  Größe  : {} über {} Komponente(n)", human_size(plan.bytes_total), plan.items.len());
-    println!("  Limit  : {}", if limit_mbps == 0 { "unbegrenzt".into() } else { format!("max. {} MB/s", limit_mbps) });
-    for item in &plan.items {
-        println!("    {:?}: {}", item.action, item.kind.label());
-    }
-    println!();
+    println!("  Limit  : {}", limit_label);
+    println!("  Queue  : {} Spiel(e)\n", queue.len());
 
-    // --- Journal anlegen (§7.1 Schritt 1)
+    // --- Vorbedingungen je Spiel (§5) und Plan anzeigen.
+    let mut all_ok = true;
+    for (game, plan) in &queue {
+        print_plan(plan);
+        let report = mover::preconditions::check(game, plan);
+        print_report(&report);
+        if !report.all_passed() {
+            all_ok = false;
+        }
+        println!();
+    }
+
+    if dry_run {
+        println!(
+            "Trockenlauf abgeschlossen — {}.",
+            if all_ok { "alle Vorbedingungen erfüllt" } else { "es gibt offene Vorbedingungen (siehe ✗)" }
+        );
+        std::process::exit(if all_ok { 0 } else { 2 });
+    }
+
+    // --- Echte Ausführung: je Spiel Vorbedingungen unmittelbar davor erneut
+    //     prüfen (Freiplatz ändert sich in der Queue), dann verschieben.
+    let rate = limit_mbps.saturating_mul(1_000_000);
+    let mut done = 0;
+    for (idx, (game, plan)) in queue.iter().enumerate() {
+        println!("\n[{}/{}] {} (AppID {})", idx + 1, queue.len(), plan.name, plan.appid);
+
+        let report = mover::preconditions::check(game, plan);
+        if !report.all_passed() {
+            eprintln!("  übersprungen — Vorbedingungen nicht erfüllt:");
+            for c in report.failures() {
+                eprintln!("    ✗ {}: {}", c.name, c.detail);
+            }
+            continue;
+        }
+
+        if let Err(code) = run_single_move(plan, rate, crash_after_mb) {
+            std::process::exit(code);
+        }
+        done += 1;
+    }
+
+    println!("\nFertig: {} von {} Spiel(en) verschoben.", done, queue.len());
+}
+
+/// Führt einen einzelnen, bereits geprüften Move aus (Journal + Transaktion).
+/// Gibt bei Fehler den gewünschten Exit-Code zurück.
+fn run_single_move(plan: &MovePlan, rate: u64, crash_after_mb: u64) -> Result<(), i32> {
     let labels = plan.moved_component_labels();
     let mut journal = match Journal::create(
-        appid, &plan.name, &plan.installdir, &source, &target, &labels, plan.bytes_total,
+        plan.appid,
+        &plan.name,
+        &plan.installdir,
+        &plan.source_library,
+        &plan.target_library,
+        &labels,
+        plan.bytes_total,
     ) {
         Ok(j) => j,
         Err(e) => {
             eprintln!("Journal nicht anlegbar: {}", e);
-            std::process::exit(1);
+            return Err(1);
         }
     };
-    println!("  Journal: {}\n", journal.path.display());
 
-    let total = plan.bytes_total;
-    let crash_bytes = crash_after_mb.saturating_mul(1_000_000);
-    let progress = make_progress(total, crash_bytes);
-
-    let rate = limit_mbps.saturating_mul(1_000_000);
-    match mover::execute::execute(&plan, rate, false, &mut journal, progress) {
+    let progress = make_progress(plan.bytes_total, crash_after_mb.saturating_mul(1_000_000));
+    match mover::execute::execute(plan, rate, false, &mut journal, progress) {
         Ok(st) => {
             eprintln!();
-            println!("\n--- Move abgeschlossen ---");
             print_move_stats(&st);
+            Ok(())
         }
         Err(e) => {
             eprintln!("\nFehler: {}", e);
             let _ = journal.set_state(JobState::Failed);
             eprintln!("Job als FAILED markiert; Quelle unangetastet. Recovery: `barge recover`");
-            std::process::exit(1);
+            Err(1)
         }
+    }
+}
+
+fn print_plan(plan: &MovePlan) {
+    println!(
+        "  ▸ {} (AppID {}) — {} über {} Komponente(n):",
+        plan.name,
+        plan.appid,
+        human_size(plan.bytes_total),
+        plan.items.len()
+    );
+    for item in &plan.items {
+        let verb = match item.action {
+            mover::plan::Action::MoveDir | mover::plan::Action::MoveFile => "verschieben",
+            mover::plan::Action::DeleteSource => "löschen (Quelle)",
+        };
+        println!("      {:<12} {}", item.kind.label(), verb);
+    }
+}
+
+fn print_report(report: &mover::preconditions::Report) {
+    println!("    Vorbedingungen (§5):");
+    for c in &report.checks {
+        println!("      {} {}: {}", if c.passed { "✓" } else { "✗" }, c.name, c.detail);
     }
 }
 
@@ -608,9 +669,10 @@ fn print_usage() {
          \x20 barge copy <QUELLE> <ZIEL> [--limit MB/s | --unlimited]\n\
          \x20                           Kopier-Engine standalone (Stufe 2): gedrosselt,\n\
          \x20                           sequenziell, mit fsync. Default 250 MB/s.\n\
-         \x20 barge move <QUELL-LIB> <ZIEL-LIB> <APPID> [--limit MB/s] [--keep-shadercache]\n\
-         \x20                           vollständiger, transaktionaler Move mit Journal +\n\
-         \x20                           Crash-Recovery (Stufe 3). AppID aus `barge list`.\n\
+         \x20 barge move <QUELL-LIB> <ZIEL-LIB> <APPID>… [--dry-run] [--limit MB/s] [--keep-shadercache]\n\
+         \x20                           vollständiger, transaktionaler Move mit §5-Prüfung,\n\
+         \x20                           Journal + Crash-Recovery. Mehrere AppIDs = Queue.\n\
+         \x20                           --dry-run zeigt Plan + Prüfungen ohne Änderung.\n\
          \x20 barge recover [cleanup|resume|finish <ID>]\n\
          \x20                           unvollendete Jobs anzeigen / aufräumen / fortsetzen\n\
          \x20 barge -h | --help         diese Hilfe\n",

@@ -32,8 +32,10 @@ In Arbeit. Umsetzung in Stufen (siehe `docs/design.md`, §11):
       → atomares `rename` → erst dann Quelle löschen), fsync-verankertes Journal
       unter `$XDG_STATE_HOME/barge/jobs/`, Recovery (`cleanup`/`resume`/`finish`),
       Prefix-Fix (§4.3). Crash-getestet (`kill`/`abort` mitten im Job).
-- [ ] Stufe 4 — Move-Orchestrierung (volle Vorbedingungen §5, Trockenlauf,
-      Mehrfachauswahl/Queue)
+- [x] **Stufe 4 — Move-Orchestrierung.** Voller Vorbedingungssatz (§5: Steam
+      aus, StateFlags, Ziel registriert, beschreibbar, Freiplatz + 5 %, kein
+      Konflikt), Trockenlauf (`--dry-run`, §8.4) und Warteschlange für mehrere
+      AppIDs (§14).
 - [ ] Stufe 5 — GUI (eframe/egui)
 - [ ] Stufe 6 — Feinschliff, AppImage
 
@@ -46,7 +48,8 @@ cargo build
 cargo run                        # alle erkannten Libraries + Spiele auflisten
 cargo run -- list <PFAD>         # bestimmten Library-Root (oder steamapps/) auflisten
 cargo run -- copy <SRC> <DST>    # Kopier-Engine standalone (Default max. 250 MB/s)
-cargo run -- move <QUELL-LIB> <ZIEL-LIB> <APPID>   # vollständiger Move mit Journal
+cargo run -- move <QUELL-LIB> <ZIEL-LIB> <APPID>…  # vollständiger Move mit Journal
+cargo run -- move <QUELL-LIB> <ZIEL-LIB> <APPID> --dry-run   # Plan + §5-Prüfung, ohne Änderung
 cargo run -- recover             # unvollendete Jobs anzeigen / fortsetzen
 cargo test                       # Unit-Tests
 ```
