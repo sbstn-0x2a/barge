@@ -66,11 +66,11 @@ fn disk_line(ui: &mut egui::Ui, lib: &LibraryView) {
     }
 }
 
-/// Cover-Miniatur (falls im Steam-Cache vorhanden, §3.5).
-fn cover_cell(ui: &mut egui::Ui, cover: &Option<std::path::PathBuf>) {
-    if let Some(p) = cover {
+/// Cover-Miniatur (lokaler Cache oder CDN, §3.5).
+fn cover_cell(ui: &mut egui::Ui, cover: &Option<String>) {
+    if let Some(uri) = cover {
         ui.add(
-            egui::Image::from_uri(format!("file://{}", p.display()))
+            egui::Image::from_uri(uri.clone())
                 .max_height(38.0)
                 .maintain_aspect_ratio(true),
         );

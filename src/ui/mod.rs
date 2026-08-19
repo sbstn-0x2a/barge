@@ -34,8 +34,9 @@ pub struct GameRow {
     pub size: u64,
     pub blocked_reason: Option<String>,
     pub is_tool: bool,
-    /// Pfad zum Cover (`library_600x900.jpg`), falls im Steam-Cache vorhanden (§3.5).
-    pub cover: Option<PathBuf>,
+    /// Cover-URI (§3.5): `file://` aus dem lokalen Steam-Cache, sonst als
+    /// Fallback das Steam-CDN (`https://…`). `None` nur bei Tools ohne Cover.
+    pub cover: Option<String>,
     /// Vorhandene, sichtbar zu machende Zusatzkomponenten (§4).
     pub has_compatdata: bool,
     pub has_workshop: bool,
@@ -644,15 +645,29 @@ fn spawn_load(ctx: egui::Context) -> Receiver<Result<Vec<LibraryView>, String>> 
                     let present = |k: ComponentKind| {
                         g.components.iter().any(|c| c.kind == k && c.present)
                     };
+                    let is_tool = g.manifest.is_tool();
+                    let appid = g.manifest.appid;
+                    // Lokales Cover bevorzugen; sonst (außer bei Tools) vom
+                    // Steam-CDN nachladen, damit auch nicht gecachte Titel wie
+                    // Diablo IV ein Bild bekommen.
                     let cover = cache_root
                         .as_ref()
-                        .and_then(|cr| find_cover(cr, g.manifest.appid));
+                        .and_then(|cr| find_cover(cr, appid))
+                        .map(|p| format!("file://{}", p.display()))
+                        .or_else(|| {
+                            (!is_tool).then(|| {
+                                format!(
+                                    "https://steamcdn-a.akamaihd.net/steam/apps/{}/library_600x900.jpg",
+                                    appid
+                                )
+                            })
+                        });
                     GameRow {
-                        appid: g.manifest.appid,
+                        appid,
                         name: g.manifest.name.clone(),
                         size,
                         blocked_reason: g.manifest.blocked_reason(),
-                        is_tool: g.manifest.is_tool(),
+                        is_tool,
                         cover,
                         has_compatdata: present(ComponentKind::Compatdata),
                         has_workshop: present(ComponentKind::WorkshopContent),
