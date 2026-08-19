@@ -115,7 +115,9 @@ fn game_grid(ui: &mut egui::Ui, id: &str, games: &[GameRow], mut selected: Optio
                                         match &row.cover {
                                             Some(uri) => {
                                                 ui.add(egui::Image::from_uri(uri.clone())
-                                                    .fit_to_exact_size(egui::vec2(COVER_W, COVER_H)));
+                                                    .max_width(COVER_W)
+                                                    .max_height(COVER_H)
+                                                    .maintain_aspect_ratio(true));
                                             }
                                             None => {
                                                 let (rect, _) = ui.allocate_exact_size(

@@ -603,6 +603,45 @@ fn dry_run_report(queue: &[(Game, MovePlan)]) -> String {
     s
 }
 
+/// Cache-Verzeichnis für heruntergeladene Cover (`$XDG_CACHE_HOME/barge/covers`).
+fn cover_cache_dir() -> Option<PathBuf> {
+    let base = std::env::var_os("XDG_CACHE_HOME")
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache")))?;
+    let d = base.join("barge").join("covers");
+    std::fs::create_dir_all(&d).ok()?;
+    Some(d)
+}
+
+/// Lädt das Cover eines Spiels vom Steam-CDN und legt es lokal ab (§3.5).
+/// Fällt vom Hochkant-Cover auf das Header-Bild zurück. Gibt den lokalen Pfad
+/// zurück oder `None` (auch offline / kein Bild verfügbar). Bereits gecachte
+/// Dateien werden wiederverwendet.
+fn fetch_cover(cache_dir: &std::path::Path, appid: u32) -> Option<PathBuf> {
+    use std::io::Read;
+    let out = cache_dir.join(format!("{}.jpg", appid));
+    if out.is_file() {
+        return Some(out);
+    }
+    let urls = [
+        format!("https://cdn.cloudflare.steamstatic.com/steam/apps/{}/library_600x900.jpg", appid),
+        format!("https://cdn.cloudflare.steamstatic.com/steam/apps/{}/header.jpg", appid),
+    ];
+    for url in urls {
+        let Ok(resp) = ureq::get(&url).timeout(std::time::Duration::from_secs(6)).call() else {
+            continue;
+        };
+        let mut bytes = Vec::new();
+        if resp.into_reader().take(16_000_000).read_to_end(&mut bytes).is_ok() && bytes.len() > 200 {
+            if std::fs::write(&out, &bytes).is_ok() {
+                return Some(out);
+            }
+        }
+    }
+    None
+}
+
 /// Sucht das Hochkant-Cover eines Spiels im Steam-Cache (§3.5). Deckt
 /// lokalisierte Namen (`library_600x900_german.jpg`), `_2x`, das alte flache
 /// Layout und – als Notlösung – ein Header-Bild ab.
@@ -651,6 +690,8 @@ fn spawn_load(ctx: egui::Context) -> Receiver<Result<Vec<LibraryView>, String>> 
             .iter()
             .map(|l| l.path.join("appcache").join("librarycache"))
             .find(|p| p.is_dir());
+        // Eigener Cover-Cache für vom CDN nachgeladene Bilder.
+        let cover_dir = cover_cache_dir();
 
         let mut views = Vec::new();
         for lib in libs {
@@ -666,21 +707,20 @@ fn spawn_load(ctx: egui::Context) -> Receiver<Result<Vec<LibraryView>, String>> 
                     };
                     let is_tool = g.manifest.is_tool();
                     let appid = g.manifest.appid;
-                    // Lokales Cover bevorzugen; sonst (außer bei Tools) vom
-                    // Steam-CDN nachladen, damit auch nicht gecachte Titel wie
-                    // Diablo IV ein Bild bekommen.
-                    let cover = cache_root
+                    // Lokales Steam-Cover bevorzugen; sonst (außer bei Tools) vom
+                    // CDN in den eigenen Cache laden. Nur lokale Dateien landen
+                    // als URI in der UI — dadurch keine egui-HTTP-Fehler mehr.
+                    let path = cache_root
                         .as_ref()
                         .and_then(|cr| find_cover(cr, appid))
-                        .map(|p| format!("file://{}", p.display()))
                         .or_else(|| {
-                            (!is_tool).then(|| {
-                                format!(
-                                    "https://steamcdn-a.akamaihd.net/steam/apps/{}/library_600x900.jpg",
-                                    appid
-                                )
-                            })
+                            if is_tool {
+                                None
+                            } else {
+                                cover_dir.as_ref().and_then(|d| fetch_cover(d, appid))
+                            }
                         });
+                    let cover = path.map(|p| format!("file://{}", p.display()));
                     GameRow {
                         appid,
                         name: g.manifest.name.clone(),

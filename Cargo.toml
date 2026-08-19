@@ -19,6 +19,7 @@ eframe = "0.29"      # GUI (§8), immediate mode; X11 + Wayland via winit/glow
 egui_extras = { version = "0.29", features = ["all_loaders"] } # Tabellen + Bild-Loader (§8.1, §3.5)
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] } # Cover decodieren
 rfd = "0.15"         # nativer Ordnerdialog (§8.3)
+ureq = "2"           # Cover vom Steam-CDN laden und lokal cachen (§3.5)
 
 [profile.release]
 opt-level = 2
