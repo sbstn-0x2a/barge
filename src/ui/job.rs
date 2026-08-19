@@ -10,6 +10,7 @@ use std::thread::JoinHandle;
 
 use eframe::egui;
 
+use crate::i18n::{tr, trf};
 use crate::mover::copy::Stats;
 use crate::mover::journal::{JobState, Journal};
 use crate::mover::plan::{Action, MovePlan};
@@ -60,25 +61,43 @@ impl RunningJob {
                 }
                 Msg::Skipped { name, reasons } => {
                     // ASCII-Marker: die egui-Monospace-Schrift hat keine ✓/✗-Glyphen.
-                    self.log.push(format!("SKIP  {} -- {}", name, reasons.join("; ")));
+                    self.log.push(trf(
+                        "SKIP  {} -- {}",
+                        "SKIP  {} -- {}",
+                        &[&name, &reasons.join("; ")],
+                    ));
                 }
                 Msg::Done { name, moved, deleted } => {
                     self.queue_done += 1;
-                    let mut line = format!("OK    {} -- verschoben: {}", name, moved.join(", "));
+                    let mut line = trf(
+                        "OK    {} -- verschoben: {}",
+                        "OK    {} -- moved: {}",
+                        &[&name, &moved.join(", ")],
+                    );
                     if !deleted.is_empty() {
-                        line.push_str(&format!("; geloescht: {}", deleted.join(", ")));
+                        line.push_str(&trf("; geloescht: {}", "; deleted: {}", &[&deleted.join(", ")]));
                     }
                     self.log.push(line);
                 }
                 Msg::Failed { name, error } => {
-                    self.log.push(format!("FAIL  {} -- {}", name, error));
+                    self.log.push(trf("FAIL  {} -- {}", "FAIL  {} -- {}", &[&name, &error]));
                 }
                 Msg::Cancelled => {
-                    self.log.push("Abgebrochen -- .partial aufgeraeumt, Quelle intakt".into());
+                    self.log.push(
+                        tr(
+                            "Abgebrochen -- .partial aufgeraeumt, Quelle intakt",
+                            "Cancelled -- .partial cleaned up, source intact",
+                        )
+                        .into(),
+                    );
                     self.finished = true;
                 }
                 Msg::AllDone { moved, total } => {
-                    self.log.push(format!("Fertig: {} von {} verschoben.", moved, total));
+                    self.log.push(trf(
+                        "Fertig: {} von {} verschoben.",
+                        "Done: {} of {} moved.",
+                        &[&moved.to_string(), &total.to_string()],
+                    ));
                     self.finished = true;
                 }
             }

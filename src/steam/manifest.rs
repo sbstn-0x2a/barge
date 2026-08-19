@@ -53,9 +53,10 @@ impl Manifest {
         if self.is_fully_installed() {
             None
         } else {
-            Some(format!(
+            Some(crate::i18n::trf(
                 "nicht vollständig installiert (StateFlags={})",
-                self.state_flags
+                "not fully installed (StateFlags={})",
+                &[&self.state_flags.to_string()],
             ))
         }
     }

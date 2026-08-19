@@ -7,6 +7,7 @@ use eframe::egui;
 use egui_extras::{Column, TableBuilder};
 
 use super::{GameRow, LibraryView};
+use crate::i18n::{tr, trf};
 use crate::mover::plan::ComponentChoice;
 use crate::util::human_size;
 
@@ -52,16 +53,19 @@ fn disk_line(ui: &mut egui::Ui, lib: &LibraryView) {
         Some((total, avail)) if total > 0 => {
             let used = total.saturating_sub(avail);
             let pct = (used as f64 / total as f64 * 100.0).round() as u32;
-            ui.label(format!(
+            ui.label(trf(
                 "{} / {} belegt ({} %) · {} frei",
-                human_size(used),
-                human_size(total),
-                pct,
-                human_size(avail)
+                "{} / {} used ({} %) · {} free",
+                &[
+                    &human_size(used),
+                    &human_size(total),
+                    &pct.to_string(),
+                    &human_size(avail),
+                ],
             ));
         }
         _ => {
-            ui.label("Speicherplatz unbekannt");
+            ui.label(tr("Speicherplatz unbekannt", "disk space unknown"));
         }
     }
 }
@@ -211,9 +215,9 @@ pub fn source_panel(
     selected: &mut HashSet<u32>,
     comp_choice: &mut HashMap<u32, ComponentChoice>,
 ) {
-    ui.heading("Quelle");
+    ui.heading(tr("Quelle", "Source"));
     if libraries.is_empty() {
-        ui.label("Keine Steam-Libraries gefunden.");
+        ui.label(tr("Keine Steam-Libraries gefunden.", "No Steam libraries found."));
         return;
     }
     // Bei mehreren Bibliotheken das Ziel aus der Quell-Auswahl ausblenden.
@@ -224,18 +228,18 @@ pub fn source_panel(
 
     ui.horizontal(|ui| {
         ui.set_height(TOOLBAR_H);
-        if ui.small_button("Alle").clicked() {
+        if ui.small_button(tr("Alle", "All")).clicked() {
             for r in lib.games.iter().filter(|r| r.blocked_reason.is_none()) {
                 selected.insert(r.appid);
             }
         }
-        if ui.small_button("Keine").clicked() {
+        if ui.small_button(tr("Keine", "None")).clicked() {
             selected.clear();
         }
         ui.weak(if grid {
-            "· Kachel anklicken zum Auswählen"
+            tr("· Kachel anklicken zum Auswählen", "· click a tile to select")
         } else {
-            "· Spaltenkopf schaltet die Auswahl um"
+            tr("· Spaltenkopf schaltet die Auswahl um", "· click a column header to toggle")
         });
     });
 
@@ -267,16 +271,19 @@ pub fn source_panel(
                 ui.strong("");
             });
             header.col(|ui| {
-                ui.strong("Spiel");
+                ui.strong(tr("Spiel", "Game"));
             });
             header.col(|ui| {
-                ui.strong("Größe");
+                ui.strong(tr("Größe", "Size"));
             });
             header.col(|ui| {
                 ui.vertical_centered(|ui| {
                     if ui
                         .button("compat")
-                        .on_hover_text("compatdata (Savegames + Prefix). An = mitnehmen, aus = in Quelle belassen. Klick: für alle Ausgewählten umschalten")
+                        .on_hover_text(tr(
+                            "compatdata (Savegames + Prefix). An = mitnehmen, aus = in Quelle belassen. Klick: für alle Ausgewählten umschalten",
+                            "compatdata (savegames + prefix). On = move, off = leave in source. Click: toggle for all selected",
+                        ))
                         .clicked()
                     {
                         toggle = Some(ToggleCol::Compat);
@@ -287,7 +294,10 @@ pub fn source_panel(
                 ui.vertical_centered(|ui| {
                     if ui
                         .button("workshop")
-                        .on_hover_text("Workshop-Mods. An = mitnehmen, aus = belassen. Klick: für alle Ausgewählten umschalten")
+                        .on_hover_text(tr(
+                            "Workshop-Mods. An = mitnehmen, aus = belassen. Klick: für alle Ausgewählten umschalten",
+                            "Workshop mods. On = move, off = leave. Click: toggle for all selected",
+                        ))
                         .clicked()
                     {
                         toggle = Some(ToggleCol::Workshop);
@@ -298,7 +308,10 @@ pub fn source_panel(
                 ui.vertical_centered(|ui| {
                     if ui
                         .button("shader")
-                        .on_hover_text("shadercache (wird neu erzeugt). An = mitnehmen, aus = löschen. Klick: für alle Ausgewählten umschalten")
+                        .on_hover_text(tr(
+                            "shadercache (wird neu erzeugt). An = mitnehmen, aus = löschen. Klick: für alle Ausgewählten umschalten",
+                            "shadercache (regenerated). On = move, off = delete. Click: toggle for all selected",
+                        ))
                         .clicked()
                     {
                         toggle = Some(ToggleCol::Shader);
@@ -374,7 +387,7 @@ pub fn target_panel(
     source_idx: usize,
     grid: bool,
 ) {
-    ui.heading("Ziel");
+    ui.heading(tr("Ziel", "Target"));
     if libraries.is_empty() {
         return;
     }
@@ -388,9 +401,9 @@ pub fn target_panel(
     ui.horizontal(|ui| {
         ui.set_height(TOOLBAR_H);
         if *target_idx == source_idx {
-            ui.weak("Nur eine Bibliothek — kein Ziel zum Verschieben");
+            ui.weak(tr("Nur eine Bibliothek — kein Ziel zum Verschieben", "Only one library — no target to move to"));
         } else {
-            ui.weak("Vorschau — bereits im Ziel installierte Spiele");
+            ui.weak(tr("Vorschau — bereits im Ziel installierte Spiele", "Preview — games already installed in the target"));
         }
     });
 
@@ -411,10 +424,10 @@ pub fn target_panel(
                 ui.strong("");
             });
             header.col(|ui| {
-                ui.strong("Spiel");
+                ui.strong(tr("Spiel", "Game"));
             });
             header.col(|ui| {
-                ui.strong("Größe");
+                ui.strong(tr("Größe", "Size"));
             });
         })
         .body(|mut body| {

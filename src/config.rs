@@ -24,6 +24,8 @@ pub struct Config {
     pub grid_view: bool,
     /// Farbschema: "dark" | "light" | "contrast".
     pub theme: String,
+    /// Sprache: "de" | "en" | "" (leer = beim ersten Start automatisch).
+    pub lang: String,
     /// Zuletzt gewählte Quell-/Ziel-Library (kanonischer Pfad). Beim Start wird
     /// per Pfad zugeordnet; fehlt die Library, gilt der Default.
     pub source_lib: String,
@@ -44,6 +46,7 @@ impl Default for Config {
             limit_mbps: 250,
             grid_view: false,
             theme: "dark".to_string(),
+            lang: String::new(),
             source_lib: String::new(),
             target_lib: String::new(),
             extra_libraries: Vec::new(),

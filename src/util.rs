@@ -21,8 +21,12 @@ pub fn human_size(bytes: u64) -> String {
     if unit == 0 {
         format!("{} B", bytes)
     } else {
-        // Deutsches Dezimalkomma statt Punkt.
-        format!("{:.1} {}", value, UNITS[unit]).replace('.', ",")
+        let s = format!("{:.1} {}", value, UNITS[unit]);
+        // Deutsch: Dezimalkomma; Englisch: Punkt.
+        match crate::i18n::lang() {
+            crate::i18n::Lang::De => s.replace('.', ","),
+            crate::i18n::Lang::En => s,
+        }
     }
 }
 
@@ -102,6 +106,7 @@ mod tests {
 
     #[test]
     fn formatiert_groessen() {
+        crate::i18n::set_lang(crate::i18n::Lang::De);
         assert_eq!(human_size(0), "0 B");
         assert_eq!(human_size(512), "512 B");
         assert_eq!(human_size(1024), "1,0 KiB");

@@ -6,6 +6,7 @@
 //! Kopier-Engine (§6) und GUI (§8) folgen.
 
 mod config;
+mod i18n;
 mod mover;
 mod steam;
 mod ui;
@@ -31,6 +32,10 @@ struct Totals {
 }
 
 fn main() {
+    // Sprache aus der gespeicherten Config (falls gesetzt), sonst aus dem
+    // Locale. Die GUI kann sie später per Umschalter ändern.
+    i18n::set_from_code(&config::Config::load().lang);
+
     let args: Vec<String> = std::env::args().skip(1).collect();
 
     if args.iter().any(|a| a == "-h" || a == "--help") {

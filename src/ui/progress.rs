@@ -3,6 +3,7 @@
 use eframe::egui;
 
 use super::job::RunningJob;
+use crate::i18n::{tr, trf};
 use crate::util::human_size;
 
 pub fn view(ui: &mut egui::Ui, r: &mut RunningJob) {
@@ -16,9 +17,13 @@ pub fn view(ui: &mut egui::Ui, r: &mut RunningJob) {
         // Queue-Position.
         let pos = (r.queue_done + 1).min(r.queue_total.max(1));
         ui.label(
-            egui::RichText::new(format!("Verschiebe Spiel {} von {}", pos, r.queue_total))
-                .size(14.0)
-                .weak(),
+            egui::RichText::new(trf(
+                "Verschiebe Spiel {} von {}",
+                "Moving game {} of {}",
+                &[&pos.to_string(), &r.queue_total.to_string()],
+            ))
+            .size(14.0)
+            .weak(),
         );
 
         // Aktuelles Spiel prominent.
@@ -50,12 +55,22 @@ pub fn view(ui: &mut egui::Ui, r: &mut RunningJob) {
         // Rate links, Abbrechen rechts.
         ui.horizontal(|ui| {
             // §6.1: die *gemessene* Rate anzeigen.
-            ui.label(egui::RichText::new(format!("gemessen: {:.0} MB/s", r.rate_mbps)).size(14.0));
+            ui.label(
+                egui::RichText::new(trf(
+                    "gemessen: {} MB/s",
+                    "measured: {} MB/s",
+                    &[&format!("{:.0}", r.rate_mbps)],
+                ))
+                .size(14.0),
+            );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if r.cancelling {
-                    ui.colored_label(egui::Color32::from_rgb(0xd0, 0x90, 0x30), "wird abgebrochen…");
+                    ui.colored_label(
+                        egui::Color32::from_rgb(0xd0, 0x90, 0x30),
+                        tr("wird abgebrochen…", "cancelling…"),
+                    );
                 } else if ui
-                    .add(egui::Button::new("Abbrechen").min_size(egui::vec2(120.0, 28.0)))
+                    .add(egui::Button::new(tr("Abbrechen", "Cancel")).min_size(egui::vec2(120.0, 28.0)))
                     .clicked()
                 {
                     r.request_cancel();

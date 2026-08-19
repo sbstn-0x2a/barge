@@ -16,6 +16,7 @@ use std::time::{Duration, Instant};
 
 use eframe::egui;
 
+use crate::i18n::{tr, trf};
 use crate::mover::journal::{JobState, Journal};
 use crate::mover::plan::{ComponentChoice, MovePlan};
 use crate::mover::preconditions;
@@ -161,6 +162,7 @@ impl BargeApp {
         cfg.limit_mbps = self.limit_mbps;
         cfg.grid_view = self.grid_view;
         cfg.theme = self.theme.clone();
+        cfg.lang = crate::i18n::code().to_string();
         // Quelle/Ziel nur überschreiben, wenn die Libraries geladen sind.
         if let Some(l) = self.libraries.get(self.source_idx) {
             cfg.source_lib = l.path.display().to_string();
@@ -212,10 +214,10 @@ impl BargeApp {
                 self.reload(ctx);
             }
             None => {
-                self.error_modal = Some(format!(
-                    "Kein gültiger Steam-Library-Ordner:\n{}\n\nErwartet wird ein Ordner mit \
-                     einem Unterordner „steamapps/“ (oder direkt das steamapps/-Verzeichnis).",
-                    path.display()
+                self.error_modal = Some(trf(
+                    "Kein gültiger Steam-Library-Ordner:\n{}\n\nErwartet wird ein Ordner mit einem Unterordner „steamapps/“ (oder direkt das steamapps/-Verzeichnis).",
+                    "Not a valid Steam library folder:\n{}\n\nExpected a folder containing a „steamapps/“ subfolder (or the steamapps/ directory itself).",
+                    &[&path.display().to_string()],
                 ));
             }
         }
@@ -290,7 +292,7 @@ impl BargeApp {
         match action {
             RecoveryAction::Cleanup => {
                 if let Err(e) = crate::mover::execute::cleanup_target_partials(&jrnl) {
-                    self.error_modal = Some(format!("Verwerfen fehlgeschlagen: {}", e));
+                    self.error_modal = Some(trf("Verwerfen fehlgeschlagen: {}", "Discard failed: {}", &[&e.to_string()]));
                 }
                 self.reload(ctx);
                 if self.incomplete.is_empty() {
@@ -299,7 +301,7 @@ impl BargeApp {
             }
             RecoveryAction::Finish => {
                 if let Err(e) = crate::mover::execute::finish_committed(&jrnl) {
-                    self.error_modal = Some(format!("Abschließen fehlgeschlagen: {}", e));
+                    self.error_modal = Some(trf("Abschließen fehlgeschlagen: {}", "Finishing failed: {}", &[&e.to_string()]));
                 }
                 self.reload(ctx);
                 if self.incomplete.is_empty() {
@@ -315,7 +317,7 @@ impl BargeApp {
                             Job::Running(job::start_resume(jrnl, plan, rate, self.verify, ctx.clone()));
                     }
                     Err(e) => {
-                        self.error_modal = Some(format!("Fortsetzen nicht möglich: {}", e));
+                        self.error_modal = Some(trf("Fortsetzen nicht möglich: {}", "Cannot resume: {}", &[&e.to_string()]));
                     }
                 }
             }
@@ -397,6 +399,7 @@ impl eframe::App for BargeApp {
 
         let mut new_zoom: Option<f32> = None;
         let mut new_theme: Option<String> = None;
+        let mut new_lang: Option<crate::i18n::Lang> = None;
         let mut open_dialog = false;
         let mut open_log = false;
         let mut open_config = false;
@@ -419,14 +422,20 @@ impl eframe::App for BargeApp {
                 ui.separator();
                 if ui
                     .button("Log")
-                    .on_hover_text("Öffnet die barge-Logdatei (Verlauf der Moves) im Standardeditor")
+                    .on_hover_text(tr(
+                        "Öffnet die barge-Logdatei (Verlauf der Moves) im Standardeditor",
+                        "Opens the barge log file (move history) in the default editor",
+                    ))
                     .clicked()
                 {
                     open_log = true;
                 }
                 if ui
                     .button("Config")
-                    .on_hover_text("Öffnet die Konfigurationsdatei (config.json) im Standardeditor")
+                    .on_hover_text(tr(
+                        "Öffnet die Konfigurationsdatei (config.json) im Standardeditor",
+                        "Opens the configuration file (config.json) in the default editor",
+                    ))
                     .clicked()
                 {
                     open_config = true;
@@ -436,40 +445,53 @@ impl eframe::App for BargeApp {
                 if !self.incomplete.is_empty()
                     && ui
                         .button("Jobs")
-                        .on_hover_text("Öffnet den Ordner mit den Job-Zustandsdateien (jobs/*.json)")
+                        .on_hover_text(tr(
+                            "Öffnet den Ordner mit den Job-Zustandsdateien (jobs/*.json)",
+                            "Opens the folder with the job state files (jobs/*.json)",
+                        ))
                         .clicked()
                 {
                     open_jobs = true;
                 }
                 // Zoom-Regler rechts (persistiert).
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("A +").on_hover_text("Schrift größer").clicked() {
+                    if ui.button("A +").on_hover_text(tr("Schrift größer", "Larger font")).clicked() {
                         new_zoom = Some(self.zoom_factor + 0.1);
                     }
                     ui.label(format!("{:.0} %", self.zoom_factor * 100.0));
-                    if ui.button("A -").on_hover_text("Schrift kleiner").clicked() {
+                    if ui.button("A -").on_hover_text(tr("Schrift kleiner", "Smaller font")).clicked() {
                         new_zoom = Some(self.zoom_factor - 0.1);
                     }
-                    ui.label("Schrift:");
+                    ui.label(tr("Schrift:", "Font:"));
+                    ui.separator();
+                    // Sprache DE/EN.
+                    if ui.selectable_label(crate::i18n::lang() == crate::i18n::Lang::En, "EN").clicked() {
+                        new_lang = Some(crate::i18n::Lang::En);
+                    }
+                    if ui.selectable_label(crate::i18n::lang() == crate::i18n::Lang::De, "DE").clicked() {
+                        new_lang = Some(crate::i18n::Lang::De);
+                    }
                     ui.separator();
                     // Farbschema.
                     let theme_label = match self.theme.as_str() {
-                        "light" => "Hell",
-                        "contrast" => "Kontrast",
-                        _ => "Dunkel",
+                        "light" => tr("Hell", "Light"),
+                        "contrast" => tr("Kontrast", "Contrast"),
+                        _ => tr("Dunkel", "Dark"),
                     };
                     egui::ComboBox::from_id_salt("theme")
                         .selected_text(theme_label)
                         .show_ui(ui, |ui| {
-                            for (val, label) in
-                                [("dark", "Dunkel"), ("light", "Hell"), ("contrast", "Kontrast")]
-                            {
+                            for (val, label) in [
+                                ("dark", tr("Dunkel", "Dark")),
+                                ("light", tr("Hell", "Light")),
+                                ("contrast", tr("Kontrast", "Contrast")),
+                            ] {
                                 if ui.selectable_label(self.theme == val, label).clicked() {
                                     new_theme = Some(val.to_string());
                                 }
                             }
                         });
-                    ui.label("Thema:");
+                    ui.label(tr("Thema:", "Theme:"));
                 });
             });
             // Optionszeile zentriert direkt unter dem Titel (§8.1).
@@ -484,6 +506,10 @@ impl eframe::App for BargeApp {
         if let Some(t) = new_theme {
             self.theme = t;
             apply_theme(ctx, &self.theme);
+            self.dirty = true;
+        }
+        if let Some(l) = new_lang {
+            crate::i18n::set_lang(l);
             self.dirty = true;
         }
         if open_dialog {
@@ -524,14 +550,17 @@ impl eframe::App for BargeApp {
                 ui.vertical_centered(|ui| {
                     ui.add_space(80.0);
                     ui.spinner();
-                    ui.label("Bibliotheken werden geladen (Größen werden berechnet)…");
+                    ui.label(tr(
+                        "Bibliotheken werden geladen (Größen werden berechnet)…",
+                        "Loading libraries (computing sizes)…",
+                    ));
                 });
             });
             return;
         }
         if let Some(err) = self.load_error.clone() {
             egui::CentralPanel::default().show(ctx, |ui| {
-                ui.colored_label(egui::Color32::LIGHT_RED, format!("Fehler: {}", err));
+                ui.colored_label(egui::Color32::LIGHT_RED, trf("Fehler: {}", "Error: {}", &[&err]));
             });
             return;
         }
@@ -550,15 +579,15 @@ impl eframe::App for BargeApp {
                 }
                 Job::Finished(_) => {
                     // Ergebnis wird als eigenes Fenster gezeigt (siehe unten).
-                    ui.label("Move abgeschlossen — siehe Ergebnis-Fenster.");
+                    ui.label(tr("Move abgeschlossen — siehe Ergebnis-Fenster.", "Move finished — see result window."));
                 }
                 Job::Idle => {
                     ui.vertical_centered(|ui| {
                         ui.label(
-                            egui::RichText::new(format!(
+                            egui::RichText::new(trf(
                                 "Auswahl: {} Spiel(e) · {}",
-                                summary.count,
-                                crate::util::human_size(summary.bytes)
+                                "Selection: {} game(s) · {}",
+                                &[&summary.count.to_string(), &crate::util::human_size(summary.bytes)],
                             ))
                             .size(18.0)
                             .strong(),
@@ -566,7 +595,11 @@ impl eframe::App for BargeApp {
                         ui.add_space(8.0);
                         let same = self.source_idx == self.target_idx;
                         let can_go = summary.count > 0 && !same;
-                        let label = if self.dry_run { "Trockenlauf" } else { "Verschieben" };
+                        let label = if self.dry_run {
+                            tr("Trockenlauf", "Dry run")
+                        } else {
+                            tr("Verschieben", "Move")
+                        };
                         let btn = egui::Button::new(egui::RichText::new(label).size(19.0))
                             .min_size(egui::vec2(280.0, 48.0));
                         if ui.add_enabled(can_go, btn).clicked() {
@@ -575,12 +608,15 @@ impl eframe::App for BargeApp {
                         if self.libraries.len() < 2 {
                             ui.colored_label(
                                 egui::Color32::LIGHT_RED,
-                                "Nur eine Steam-Bibliothek gefunden — kein Ziel zum Verschieben",
+                                tr(
+                                    "Nur eine Steam-Bibliothek gefunden — kein Ziel zum Verschieben",
+                                    "Only one Steam library found — no target to move to",
+                                ),
                             );
                         } else if same {
-                            ui.colored_label(egui::Color32::LIGHT_RED, "Quelle und Ziel sind identisch");
+                            ui.colored_label(egui::Color32::LIGHT_RED, tr("Quelle und Ziel sind identisch", "Source and target are the same"));
                         } else if summary.count == 0 {
-                            ui.label("keine Spiele ausgewählt");
+                            ui.label(tr("keine Spiele ausgewählt", "no games selected"));
                         }
 
                         // Recovery-Button, falls unvollendete Jobs existieren (§7.2).
@@ -589,9 +625,10 @@ impl eframe::App for BargeApp {
                         if !self.incomplete.is_empty() {
                             ui.add_space(6.0);
                             let amber = egui::Color32::from_rgb(0xE6, 0xA2, 0x23);
-                            let text = egui::RichText::new(format!(
+                            let text = egui::RichText::new(trf(
                                 "(!) Unvollendete Jobs ({})",
-                                self.incomplete.len()
+                                "(!) Unfinished jobs ({})",
+                                &[&self.incomplete.len().to_string()],
                             ))
                             .color(egui::Color32::BLACK)
                             .strong();
@@ -602,11 +639,10 @@ impl eframe::App for BargeApp {
                                         .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(0x8a, 0x5d, 0x00)))
                                         .min_size(egui::vec2(240.0, 30.0)),
                                 )
-                                .on_hover_text(
-                                    "Beim letzten Mal unterbrochene Move-Jobs (z. B. durch Absturz \
-                                     oder Abbruch). Hier ansehen, verwerfen oder fortsetzen — kein \
-                                     Terminal nötig.",
-                                )
+                                .on_hover_text(tr(
+                                    "Beim letzten Mal unterbrochene Move-Jobs (z. B. durch Absturz oder Abbruch). Hier ansehen, verwerfen oder fortsetzen — kein Terminal nötig.",
+                                    "Move jobs interrupted last time (e.g. crash or cancel). View, discard or resume them here — no terminal needed.",
+                                ))
                                 .clicked()
                             {
                                 open_recovery = true;
@@ -696,13 +732,16 @@ impl eframe::App for BargeApp {
 
         // --- Ergebnis-Fenster nach Abschluss eines Jobs (kopierbar + OK).
         if let Job::Finished(msg) = &self.job {
-            egui::Window::new("Move abgeschlossen")
+            egui::Window::new(tr("Move abgeschlossen", "Move finished"))
                 .collapsible(false)
                 .resizable(true)
                 .default_width(560.0)
                 .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
                 .show(ctx, |ui| {
-                    ui.label("Zusammenfassung der verschobenen Komponenten:");
+                    ui.label(tr(
+                        "Zusammenfassung der verschobenen Komponenten:",
+                        "Summary of the moved components:",
+                    ));
                     egui::ScrollArea::vertical().max_height(280.0).show(ui, |ui| {
                         ui.add(
                             egui::TextEdit::multiline(&mut msg.as_str())
@@ -713,7 +752,7 @@ impl eframe::App for BargeApp {
                     });
                     ui.add_space(6.0);
                     ui.horizontal(|ui| {
-                        if ui.button("In Zwischenablage kopieren").clicked() {
+                        if ui.button(tr("In Zwischenablage kopieren", "Copy to clipboard")).clicked() {
                             copy_to_clipboard = Some(msg.clone());
                         }
                         if ui.button("OK").clicked() {
@@ -747,27 +786,27 @@ impl eframe::App for BargeApp {
         let mut recovery_action: Option<(Journal, RecoveryAction)> = None;
         let mut close_recovery = false;
         if self.show_recovery {
-            egui::Window::new("Unvollendete Move-Jobs")
+            egui::Window::new(tr("Unvollendete Move-Jobs", "Unfinished move jobs"))
                 .collapsible(false)
                 .resizable(true)
                 .default_width(600.0)
                 .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
                 .show(ctx, |ui| {
-                    ui.label(
-                        "Diese Move-Jobs wurden nicht abgeschlossen (z. B. Absturz oder Abbruch). \
-                         Wähle je Job, was passieren soll:",
-                    );
+                    ui.label(tr(
+                        "Diese Move-Jobs wurden nicht abgeschlossen (z. B. Absturz oder Abbruch). Wähle je Job, was passieren soll:",
+                        "These move jobs were not finished (e.g. crash or cancel). Choose per job what should happen:",
+                    ));
                     ui.add_space(6.0);
                     egui::ScrollArea::vertical().max_height(380.0).show(ui, |ui| {
                         for jrnl in &self.incomplete {
                             egui::Frame::group(ui.style()).show(ui, |ui| {
                                 ui.strong(&jrnl.name);
                                 let zustand = match jrnl.state {
-                                    JobState::Committed => "am Ziel vollständig, Quelle noch nicht bereinigt",
-                                    JobState::Failed => "fehlgeschlagen",
-                                    _ => "unterbrochen (Kopieren nicht beendet)",
+                                    JobState::Committed => tr("am Ziel vollständig, Quelle noch nicht bereinigt", "complete at target, source not yet cleaned up"),
+                                    JobState::Failed => tr("fehlgeschlagen", "failed"),
+                                    _ => tr("unterbrochen (Kopieren nicht beendet)", "interrupted (copying not finished)"),
                                 };
-                                ui.label(format!("AppID {} · {}", jrnl.appid, zustand));
+                                ui.label(trf("AppID {} · {}", "AppID {} · {}", &[&jrnl.appid.to_string(), zustand]));
                                 ui.weak(format!(
                                     "{}  →  {}",
                                     jrnl.source_library.display(),
@@ -776,21 +815,30 @@ impl eframe::App for BargeApp {
                                 ui.add_space(4.0);
                                 ui.horizontal(|ui| {
                                     if jrnl.state == JobState::Committed {
-                                        if ui.button("Abschließen")
-                                            .on_hover_text("Das Ziel ist bereits vollständig kopiert. Entfernt nur noch die Reste in der Quell-Bibliothek und schließt den Job sauber ab.")
+                                        if ui.button(tr("Abschließen", "Finish"))
+                                            .on_hover_text(tr(
+                                                "Das Ziel ist bereits vollständig kopiert. Entfernt nur noch die Reste in der Quell-Bibliothek und schließt den Job sauber ab.",
+                                                "The target is already fully copied. Removes the leftovers in the source library and closes the job cleanly.",
+                                            ))
                                             .clicked()
                                         {
                                             recovery_action = Some((jrnl.clone(), RecoveryAction::Finish));
                                         }
                                     } else {
-                                        if ui.button("Fortsetzen")
-                                            .on_hover_text("Setzt den unterbrochenen Move fort. Bereits kopierte Dateien werden per Größe + Datum übersprungen, der Rest wird kopiert.")
+                                        if ui.button(tr("Fortsetzen", "Resume"))
+                                            .on_hover_text(tr(
+                                                "Setzt den unterbrochenen Move fort. Bereits kopierte Dateien werden per Größe + Datum übersprungen, der Rest wird kopiert.",
+                                                "Resumes the interrupted move. Already-copied files are skipped by size + date, the rest is copied.",
+                                            ))
                                             .clicked()
                                         {
                                             recovery_action = Some((jrnl.clone(), RecoveryAction::Resume));
                                         }
-                                        if ui.button("Verwerfen")
-                                            .on_hover_text("Löscht die unfertige Ziel-Kopie (.partial). Die Quelle bleibt unangetastet — das Spiel bleibt in der Quell-Bibliothek spielbar.")
+                                        if ui.button(tr("Verwerfen", "Discard"))
+                                            .on_hover_text(tr(
+                                                "Löscht die unfertige Ziel-Kopie (.partial). Die Quelle bleibt unangetastet — das Spiel bleibt in der Quell-Bibliothek spielbar.",
+                                                "Deletes the unfinished target copy (.partial). The source is left untouched — the game stays playable in the source library.",
+                                            ))
                                             .clicked()
                                         {
                                             recovery_action = Some((jrnl.clone(), RecoveryAction::Cleanup));
@@ -803,7 +851,7 @@ impl eframe::App for BargeApp {
                     });
                     ui.add_space(6.0);
                     ui.vertical_centered(|ui| {
-                        if ui.button("Schließen").clicked() {
+                        if ui.button(tr("Schließen", "Close")).clicked() {
                             close_recovery = true;
                         }
                     });
@@ -819,7 +867,7 @@ impl eframe::App for BargeApp {
         // --- Fehler-Fenster (z. B. ungültige Bibliothek) mit OK-Rückkehr
         if let Some(msg) = self.error_modal.clone() {
             let mut dismiss = false;
-            egui::Window::new("Fehler")
+            egui::Window::new(tr("Fehler", "Error"))
                 .collapsible(false)
                 .resizable(false)
                 .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
@@ -852,15 +900,25 @@ impl eframe::App for BargeApp {
 fn dry_run_report(queue: &[(Game, MovePlan)]) -> String {
     use std::fmt::Write;
     let mut s = String::new();
-    let _ = writeln!(s, "TROCKENLAUF -- keine Datei wird angefasst (§8.4)\n");
+    let _ = writeln!(
+        s,
+        "{}\n",
+        tr("TROCKENLAUF -- keine Datei wird angefasst (§8.4)", "DRY RUN -- no file is touched (§8.4)")
+    );
     for (game, plan) in queue {
         let _ = writeln!(
             s,
-            "- {} (AppID {}) -- {} ueber {} Komponente(n)",
-            plan.name,
-            plan.appid,
-            crate::util::human_size(plan.bytes_total),
-            plan.items.len()
+            "{}",
+            trf(
+                "- {} (AppID {}) -- {} ueber {} Komponente(n)",
+                "- {} (AppID {}) -- {} across {} component(s)",
+                &[
+                    &plan.name,
+                    &plan.appid.to_string(),
+                    &crate::util::human_size(plan.bytes_total),
+                    &plan.items.len().to_string(),
+                ],
+            )
         );
         for item in &plan.items {
             let _ = writeln!(s, "    {:?}: {}", item.action, item.kind.label());

@@ -6,6 +6,7 @@
 
 use std::path::Path;
 
+use crate::i18n::{tr, trf};
 use crate::mover::plan::{Action, MovePlan};
 use crate::steam::discovery;
 use crate::steam::game::Game;
@@ -42,16 +43,18 @@ pub fn check(game: &Game, plan: &MovePlan) -> Report {
     let mut checks = Vec::new();
 
     // §5.1 — Steam darf nicht laufen.
+    let steam_name = tr("Steam läuft nicht", "Steam is not running");
     checks.push(if discovery::steam_running() {
-        fail("Steam läuft nicht", "Steam ist aktiv — bitte beenden (kein „trotzdem fortfahren“)")
+        fail(steam_name, tr("Steam ist aktiv — bitte beenden (kein „trotzdem fortfahren“)", "Steam is running — please quit it (no „proceed anyway“)"))
     } else {
-        pass("Steam läuft nicht", "ok")
+        pass(steam_name, "ok")
     });
 
     // §5.6 — Spiel-Zustand sauber (StateFlags == 4).
+    let inst_name = tr("Spiel vollständig installiert", "Game fully installed");
     checks.push(match game.manifest.blocked_reason() {
-        None => pass("Spiel vollständig installiert", "StateFlags = 4"),
-        Some(reason) => fail("Spiel vollständig installiert", &reason),
+        None => pass(inst_name, "StateFlags = 4"),
+        Some(reason) => fail(inst_name, &reason),
     });
 
     // §5.2 — Ziel-Library bei Steam registriert (in libraryfolders.vdf).
@@ -75,13 +78,16 @@ fn check_target_registered(target: &Path) -> Check {
     let registered = discovery::discover()
         .iter()
         .any(|lib| lib.path == target);
+    let name = tr("Ziel-Library registriert", "Target library registered");
     if registered {
-        pass("Ziel-Library registriert", "in libraryfolders.vdf gefunden")
+        pass(name, tr("in libraryfolders.vdf gefunden", "found in libraryfolders.vdf"))
     } else {
         fail(
-            "Ziel-Library registriert",
-            "nicht in libraryfolders.vdf — in Steam unter Einstellungen → \
-             Speicherplatz zuerst hinzufügen (barge schreibt die Datei nicht)",
+            name,
+            tr(
+                "nicht in libraryfolders.vdf — in Steam unter Einstellungen → Speicherplatz zuerst hinzufügen (barge schreibt die Datei nicht)",
+                "not in libraryfolders.vdf — add it first in Steam under Settings → Storage (barge does not write this file)",
+            ),
         )
     }
 }
@@ -92,54 +98,60 @@ fn check_writable(target: &Path) -> Check {
     let probe = target
         .join("steamapps")
         .join(format!(".barge_write_test_{}", std::process::id()));
+    let name = tr("Ziel beschreibbar", "Target writable");
     match std::fs::File::create(&probe) {
         Ok(_) => {
             let _ = std::fs::remove_file(&probe);
-            pass("Ziel beschreibbar", "ok")
+            pass(name, "ok")
         }
-        Err(e) => fail("Ziel beschreibbar", &format!("nicht beschreibbar: {}", e)),
+        Err(e) => fail(name, &trf("nicht beschreibbar: {}", "not writable: {}", &[&e.to_string()])),
     }
 }
 
 fn check_free_space(target: &Path, bytes_total: u64) -> Check {
     let needed = (bytes_total as f64 * SPACE_MARGIN) as u64;
+    let name = tr("Genug Freiplatz", "Enough free space");
     match disk_space(target) {
         Some((_total, avail)) => {
             if avail >= needed {
                 pass(
-                    "Genug Freiplatz",
-                    &format!(
+                    name,
+                    &trf(
                         "{} frei ≥ {} nötig (inkl. 5 %)",
-                        crate::util::human_size(avail),
-                        crate::util::human_size(needed)
+                        "{} free ≥ {} needed (incl. 5 %)",
+                        &[&crate::util::human_size(avail), &crate::util::human_size(needed)],
                     ),
                 )
             } else {
                 fail(
-                    "Genug Freiplatz",
-                    &format!(
+                    name,
+                    &trf(
                         "{} frei < {} nötig (inkl. 5 %) — es fehlen {}",
-                        crate::util::human_size(avail),
-                        crate::util::human_size(needed),
-                        crate::util::human_size(needed - avail)
+                        "{} free < {} needed (incl. 5 %) — {} missing",
+                        &[
+                            &crate::util::human_size(avail),
+                            &crate::util::human_size(needed),
+                            &crate::util::human_size(needed - avail),
+                        ],
                     ),
                 )
             }
         }
-        None => fail("Genug Freiplatz", "statvfs auf das Ziel fehlgeschlagen"),
+        None => fail(name, tr("statvfs auf das Ziel fehlgeschlagen", "statvfs on the target failed")),
     }
 }
 
 fn check_no_conflict(plan: &MovePlan) -> Check {
+    let name = tr("Kein Zielkonflikt", "No target conflict");
     for item in &plan.items {
         if item.action != Action::DeleteSource && item.dst_final.exists() {
             return fail(
-                "Kein Zielkonflikt",
-                &format!("existiert bereits: {}", item.dst_final.display()),
+                name,
+                &trf("existiert bereits: {}", "already exists: {}", &[&item.dst_final.display().to_string()]),
             );
         }
     }
-    pass("Kein Zielkonflikt", "ok")
+    pass(name, "ok")
 }
 
 fn pass(name: &'static str, detail: &str) -> Check {
