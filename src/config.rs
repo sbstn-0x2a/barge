@@ -10,11 +10,14 @@ use serde::{Deserialize, Serialize};
 pub struct Config {
     /// egui-Zoomfaktor (1.0 = 100 %).
     pub zoom_factor: f32,
+    /// Zuletzt genutzte Fenster-Innengröße in Punkten.
+    pub window_w: f32,
+    pub window_h: f32,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Config { zoom_factor: 1.0 }
+        Config { zoom_factor: 1.0, window_w: 980.0, window_h: 660.0 }
     }
 }
 
@@ -59,5 +62,13 @@ impl Config {
             self.zoom_factor = 1.0;
         }
         self.zoom_factor = self.zoom_factor.clamp(0.7, 2.5);
+        if !self.window_w.is_finite() || self.window_w < 400.0 {
+            self.window_w = 980.0;
+        }
+        if !self.window_h.is_finite() || self.window_h < 300.0 {
+            self.window_h = 660.0;
+        }
+        self.window_w = self.window_w.min(20000.0);
+        self.window_h = self.window_h.min(20000.0);
     }
 }

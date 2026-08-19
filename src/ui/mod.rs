@@ -12,6 +12,7 @@ mod settings;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::mpsc::Receiver;
+use std::time::{Duration, Instant};
 
 use eframe::egui;
 
@@ -64,6 +65,9 @@ pub struct BargeApp {
     initialized: bool,
     /// Schrift-/Zoom-Faktor (persistiert, §4K-Displays).
     zoom_factor: f32,
+    /// Zuletzt gesehene Fenster-Innengröße (Punkte) und Debounce fürs Speichern.
+    window_size: (f32, f32),
+    last_size_save: Instant,
 }
 
 /// Aggregierte Kennzahlen der aktuellen Auswahl (für die Zusammenfassung).
@@ -92,14 +96,40 @@ impl BargeApp {
             incomplete_jobs: crate::mover::journal::Journal::scan_incomplete().len(),
             initialized: false,
             zoom_factor: cfg.zoom_factor,
+            window_size: (cfg.window_w, cfg.window_h),
+            last_size_save: Instant::now(),
         }
     }
 
-    /// Setzt den Zoom, wendet ihn an und speichert ihn.
+    fn save_config(&self) {
+        crate::config::Config {
+            zoom_factor: self.zoom_factor,
+            window_w: self.window_size.0,
+            window_h: self.window_size.1,
+        }
+        .save();
+    }
+
+    /// Setzt den Zoom, wendet ihn an und speichert die Config.
     fn set_zoom(&mut self, ctx: &egui::Context, z: f32) {
         self.zoom_factor = z.clamp(0.7, 2.5);
         ctx.set_zoom_factor(self.zoom_factor);
-        crate::config::Config { zoom_factor: self.zoom_factor }.save();
+        self.save_config();
+    }
+
+    /// Verfolgt die Fenstergröße und speichert sie entprellt (§Stufe 6).
+    fn track_window_size(&mut self, ctx: &egui::Context) {
+        let sz = ctx.screen_rect().size();
+        if sz.x < 100.0 || sz.y < 100.0 {
+            return;
+        }
+        if (sz.x - self.window_size.0).abs() > 2.0 || (sz.y - self.window_size.1).abs() > 2.0 {
+            self.window_size = (sz.x, sz.y);
+            if self.last_size_save.elapsed() > Duration::from_millis(700) {
+                self.save_config();
+                self.last_size_save = Instant::now();
+            }
+        }
     }
 
     fn selection_summary(&self) -> SelectionSummary {
@@ -145,6 +175,8 @@ impl BargeApp {
 
 impl eframe::App for BargeApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.track_window_size(ctx);
+
         // --- Hintergrund-Laden abholen
         if let Some(rx) = &self.load_rx {
             if let Ok(res) = rx.try_recv() {
@@ -350,6 +382,12 @@ impl eframe::App for BargeApp {
             self.reload(ctx);
         }
     }
+
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        // Endgültige Fenstergröße sichern (Debounce könnte die letzte
+        // Änderung sonst verschlucken).
+        self.save_config();
+    }
 }
 
 /// Trockenlauf (§8.4): Vorbedingungen prüfen und als Textbericht ausgeben.
@@ -422,9 +460,10 @@ fn spawn_load(ctx: egui::Context) -> Receiver<Result<Vec<LibraryView>, String>> 
 
 /// Startet die grafische Oberfläche (§8). Blockiert bis das Fenster schließt.
 pub fn run() -> eframe::Result<()> {
+    let cfg = crate::config::Config::load();
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([980.0, 660.0])
+            .with_inner_size([cfg.window_w, cfg.window_h])
             .with_min_inner_size([720.0, 480.0])
             .with_title("barge"),
         ..Default::default()
