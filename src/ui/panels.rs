@@ -66,14 +66,11 @@ fn disk_line(ui: &mut egui::Ui, lib: &LibraryView) {
     }
 }
 
-/// Cover-Miniatur (lokaler Cache oder CDN, §3.5).
+/// Cover-Miniatur (lokaler Cache, §3.5). Feste 2:3-Größe für ein einheitliches
+/// Bild in jeder Zeile.
 fn cover_cell(ui: &mut egui::Ui, cover: &Option<String>) {
     if let Some(uri) = cover {
-        ui.add(
-            egui::Image::from_uri(uri.clone())
-                .max_height(38.0)
-                .maintain_aspect_ratio(true),
-        );
+        ui.add(egui::Image::from_uri(uri.clone()).fit_to_exact_size(egui::vec2(24.0, 36.0)));
     }
 }
 
@@ -114,10 +111,11 @@ fn game_grid(ui: &mut egui::Ui, id: &str, games: &[GameRow], mut selected: Optio
                                     ui.vertical_centered(|ui| {
                                         match &row.cover {
                                             Some(uri) => {
+                                                // Feste Zielgröße: alle Cover sind 2:3, daher
+                                                // keine Verzerrung — aber garantiert einheitlich
+                                                // (unabhängig von der Spaltenbreite/Ladezustand).
                                                 ui.add(egui::Image::from_uri(uri.clone())
-                                                    .max_width(COVER_W)
-                                                    .max_height(COVER_H)
-                                                    .maintain_aspect_ratio(true));
+                                                    .fit_to_exact_size(egui::vec2(COVER_W, COVER_H)));
                                             }
                                             None => {
                                                 let (rect, _) = ui.allocate_exact_size(
