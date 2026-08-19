@@ -6,9 +6,9 @@ use eframe::egui;
 ///
 /// Zentriert über einen führenden `add_space` (die Zeilenbreite ist in Punkten
 /// konstant, unabhängig vom Zoom, daher genügt eine feste Schätzbreite).
-pub fn options_row(ui: &mut egui::Ui, limit_mbps: &mut u64, dry_run: &mut bool) {
+pub fn options_row(ui: &mut egui::Ui, limit_mbps: &mut u64, dry_run: &mut bool, verify: &mut bool) {
     ui.horizontal(|ui| {
-        const CONTENT_W: f32 = 480.0;
+        const CONTENT_W: f32 = 600.0;
         let space = ((ui.available_width() - CONTENT_W) * 0.5).max(0.0);
         ui.add_space(space);
 
@@ -26,6 +26,8 @@ pub fn options_row(ui: &mut egui::Ui, limit_mbps: &mut u64, dry_run: &mut bool) 
             ui.colored_label(egui::Color32::LIGHT_RED, "(!) ohne Drossel");
         }
         ui.separator();
+        ui.checkbox(verify, egui::RichText::new("Verifizieren").size(15.0))
+            .on_hover_text("Nach dem Kopieren Dateizahl/Größen/mtimes vergleichen (§7.3)");
         ui.checkbox(dry_run, egui::RichText::new("Trockenlauf").size(15.0))
             .on_hover_text("Alle Prüfungen und der vollständige Plan, ohne eine Datei anzufassen (§8.4)");
     });

@@ -40,8 +40,10 @@ In Arbeit. Umsetzung in Stufen (siehe `docs/design.md`, §11):
       Auswahl-Checkboxen, Ziel, max.-Rate-Slider, Optionen, Trockenlauf.
       Verschieben läuft im Worker-Thread mit Live-Fortschritt (§8.2) und
       Abbrechen (§8.2). Start ohne Argumente (`barge`).
-- [ ] Stufe 6 — Feinschliff (Cover-Bilder, Verifikation, Library manuell
-      hinzufügen, AppImage)
+- [~] **Stufe 6 — Feinschliff (in Arbeit).** Fenstergröße + Zoom persistiert,
+      Library manuell hinzufügen (§8.3), schnelle Verifikation nach Move (§7.3),
+      Cover-Bilder aus dem Steam-Cache (§3.5). Offen: Theme-Schalter, AppImage,
+      Kopier-Ansicht glätten.
 
 ## Build & Run
 

@@ -13,11 +13,19 @@ pub struct Config {
     /// Zuletzt genutzte Fenster-Innengröße in Punkten.
     pub window_w: f32,
     pub window_h: f32,
+    /// Manuell hinzugefügte Library-Pfade (§8.3); werden beim Laden zusätzlich
+    /// zu den erkannten Libraries berücksichtigt.
+    pub extra_libraries: Vec<String>,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Config { zoom_factor: 1.0, window_w: 980.0, window_h: 660.0 }
+        Config {
+            zoom_factor: 1.0,
+            window_w: 980.0,
+            window_h: 660.0,
+            extra_libraries: Vec::new(),
+        }
     }
 }
 

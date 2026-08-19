@@ -7,3 +7,4 @@ pub mod plan;
 pub mod preconditions;
 pub mod prefix;
 pub mod throttle;
+pub mod verify;

@@ -66,6 +66,17 @@ fn disk_line(ui: &mut egui::Ui, lib: &LibraryView) {
     }
 }
 
+/// Cover-Miniatur (falls im Steam-Cache vorhanden, §3.5).
+fn cover_cell(ui: &mut egui::Ui, cover: &Option<std::path::PathBuf>) {
+    if let Some(p) = cover {
+        ui.add(
+            egui::Image::from_uri(format!("file://{}", p.display()))
+                .max_height(38.0)
+                .maintain_aspect_ratio(true),
+        );
+    }
+}
+
 /// Zelle einer Komponenten-Spalte: Checkbox falls Komponente vorhanden, sonst
 /// ein dezenter Strich.
 fn comp_cell(ui: &mut egui::Ui, active: bool, val: &mut bool) {
@@ -141,6 +152,7 @@ pub fn source_panel(
     TableBuilder::new(ui)
         .striped(true)
         .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+        .column(Column::exact(30.0)) // Cover
         .column(Column::auto()) // Auswahl
         .column(Column::remainder().at_least(120.0)) // Spiel (skaliert mit)
         .column(Column::auto()) // Größe
@@ -148,6 +160,9 @@ pub fn source_panel(
         .column(Column::auto()) // workshop
         .column(Column::auto()) // shader
         .header(HEADER_H, |mut header| {
+            header.col(|ui| {
+                ui.strong("");
+            });
             header.col(|ui| {
                 ui.strong("");
             });
@@ -187,9 +202,10 @@ pub fn source_panel(
         })
         .body(|mut body| {
             for row in &lib.games {
-                body.row(20.0, |mut tr| {
+                body.row(42.0, |mut tr| {
                     let enabled = row.blocked_reason.is_none();
 
+                    tr.col(|ui| cover_cell(ui, &row.cover));
                     tr.col(|ui| {
                         let mut sel = selected.contains(&row.appid);
                         if ui

@@ -377,12 +377,14 @@ fn cmd_move(args: &[String]) {
     let mut delete_shadercache = true;
     let mut crash_after_mb: u64 = 0;
     let mut dry_run = false;
+    let mut verify = true;
 
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
             "--unlimited" => limit_mbps = 0,
             "--keep-shadercache" => delete_shadercache = false,
+            "--no-verify" => verify = false,
             "--dry-run" => dry_run = true,
             "--limit" => limit_mbps = parse_num(it.next(), "--limit"),
             // Nur für Tests: nach N MB hart abbrechen (simuliert kill -9, §12).
@@ -482,7 +484,7 @@ fn cmd_move(args: &[String]) {
             continue;
         }
 
-        if let Err(code) = run_single_move(plan, rate, crash_after_mb) {
+        if let Err(code) = run_single_move(plan, rate, verify, crash_after_mb) {
             std::process::exit(code);
         }
         done += 1;
@@ -493,7 +495,7 @@ fn cmd_move(args: &[String]) {
 
 /// Führt einen einzelnen, bereits geprüften Move aus (Journal + Transaktion).
 /// Gibt bei Fehler den gewünschten Exit-Code zurück.
-fn run_single_move(plan: &MovePlan, rate: u64, crash_after_mb: u64) -> Result<(), i32> {
+fn run_single_move(plan: &MovePlan, rate: u64, verify: bool, crash_after_mb: u64) -> Result<(), i32> {
     let labels = plan.moved_component_labels();
     let mut journal = match Journal::create(
         plan.appid,
@@ -513,7 +515,7 @@ fn run_single_move(plan: &MovePlan, rate: u64, crash_after_mb: u64) -> Result<()
 
     let progress = make_progress(plan.bytes_total, crash_after_mb.saturating_mul(1_000_000));
     let cancel = Arc::new(AtomicBool::new(false));
-    match mover::execute::execute(plan, rate, false, cancel, &mut journal, progress) {
+    match mover::execute::execute(plan, rate, false, verify, cancel, &mut journal, progress) {
         Ok(st) => {
             eprintln!();
             print_move_stats(&st);
@@ -611,7 +613,7 @@ fn cmd_recover(args: &[String]) {
                     println!("Setze Job {} fort ({})…", id, plan.name);
                     let progress = make_progress(total, 0);
                     let cancel = Arc::new(AtomicBool::new(false));
-                    match mover::execute::execute(&plan, 250 * 1_000_000, true, cancel, &mut journal, progress) {
+                    match mover::execute::execute(&plan, 250 * 1_000_000, true, true, cancel, &mut journal, progress) {
                         Ok(st) => { eprintln!(); println!("\n--- Fortsetzung abgeschlossen ---"); print_move_stats(&st); }
                         Err(e) => { eprintln!("\nFehler: {}", e); std::process::exit(1); }
                     }
@@ -690,7 +692,8 @@ fn print_usage() {
          \x20 barge copy <QUELLE> <ZIEL> [--limit MB/s | --unlimited]\n\
          \x20                           Kopier-Engine standalone (Stufe 2): gedrosselt,\n\
          \x20                           sequenziell, mit fsync. Default 250 MB/s.\n\
-         \x20 barge move <QUELL-LIB> <ZIEL-LIB> <APPID>… [--dry-run] [--limit MB/s] [--keep-shadercache]\n\
+         \x20 barge move <QUELL-LIB> <ZIEL-LIB> <APPID>… [--dry-run] [--limit MB/s]\n\
+         \x20                           [--keep-shadercache] [--no-verify]\n\
          \x20                           vollständiger, transaktionaler Move mit §5-Prüfung,\n\
          \x20                           Journal + Crash-Recovery. Mehrere AppIDs = Queue.\n\
          \x20                           --dry-run zeigt Plan + Prüfungen ohne Änderung.\n\

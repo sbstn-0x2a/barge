@@ -98,7 +98,12 @@ impl RunningJob {
 }
 
 /// Startet den Worker-Thread für eine Warteschlange von (Spiel, Plan)-Paaren.
-pub fn start(jobs: Vec<(Game, MovePlan)>, rate_bytes: u64, ctx: egui::Context) -> RunningJob {
+pub fn start(
+    jobs: Vec<(Game, MovePlan)>,
+    rate_bytes: u64,
+    verify: bool,
+    ctx: egui::Context,
+) -> RunningJob {
     let (tx, rx) = channel();
     let cancel = Arc::new(AtomicBool::new(false));
     let total = jobs.len();
@@ -156,7 +161,7 @@ pub fn start(jobs: Vec<(Game, MovePlan)>, rate_bytes: u64, ctx: egui::Context) -
                 ctx_p.request_repaint();
             };
 
-            match execute::execute(plan, rate_bytes, false, worker_cancel.clone(), &mut journal, progress) {
+            match execute::execute(plan, rate_bytes, false, verify, worker_cancel.clone(), &mut journal, progress) {
                 Ok(_) => {
                     moved += 1;
                     let moved_comps: Vec<String> = plan

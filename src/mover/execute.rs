@@ -21,10 +21,12 @@ use crate::steam::game::ComponentKind;
 /// Führt den Move aus. `resume=true` überspringt bereits kopierte Dateien
 /// (§7.2). `progress` wird von der Kopier-Engine mit laufenden Stats und der
 /// gemessenen MB/s aufgerufen.
+#[allow(clippy::too_many_arguments)]
 pub fn execute<F: FnMut(&Stats, f64)>(
     plan: &MovePlan,
     rate_bytes: u64,
     resume: bool,
+    verify: bool,
     cancel: Arc<AtomicBool>,
     journal: &mut Journal,
     progress: F,
@@ -50,6 +52,17 @@ pub fn execute<F: FnMut(&Stats, f64)>(
         if item.kind == ComponentKind::Compatdata {
             // §4.3 / §7.1 Schritt 5 — im .partial, vor dem rename.
             fix_prefix(partial, &plan.source_library, &plan.target_library)?;
+        }
+
+        // §7.3 — schnelle Verifikation vor dem Commit. Bei Abweichung Abbruch;
+        // .partial bleibt, Quelle unangetastet.
+        if verify {
+            if let Err(msg) = crate::mover::verify::verify_quick(&item.src, partial) {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("Verifikation fehlgeschlagen ({}): {}", item.kind.label(), msg),
+                ));
+            }
         }
 
         journal.set_bytes_done(copier.stats().bytes);

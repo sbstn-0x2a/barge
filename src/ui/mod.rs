@@ -34,6 +34,8 @@ pub struct GameRow {
     pub size: u64,
     pub blocked_reason: Option<String>,
     pub is_tool: bool,
+    /// Pfad zum Cover (`library_600x900.jpg`), falls im Steam-Cache vorhanden (§3.5).
+    pub cover: Option<PathBuf>,
     /// Vorhandene, sichtbar zu machende Zusatzkomponenten (§4).
     pub has_compatdata: bool,
     pub has_workshop: bool,
@@ -58,6 +60,7 @@ pub struct BargeApp {
     comp_choice: HashMap<u32, ComponentChoice>,
     limit_mbps: u64,
     dry_run: bool,
+    verify: bool,
     job: Job,
     incomplete_jobs: usize,
     /// Quelle/Ziel nur beim ersten Laden vorbelegen, danach die Wahl des
@@ -68,6 +71,8 @@ pub struct BargeApp {
     /// Zuletzt gesehene Fenster-Innengröße (Punkte) und Debounce fürs Speichern.
     window_size: (f32, f32),
     last_size_save: Instant,
+    /// Läuft gerade ein Ordnerdialog (Hintergrund-Thread)?
+    dialog_rx: Option<Receiver<Option<PathBuf>>>,
 }
 
 /// Aggregierte Kennzahlen der aktuellen Auswahl (für die Zusammenfassung).
@@ -79,6 +84,7 @@ pub struct SelectionSummary {
 
 impl BargeApp {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        egui_extras::install_image_loaders(&cc.egui_ctx);
         let cfg = crate::config::Config::load();
         cc.egui_ctx.set_zoom_factor(cfg.zoom_factor);
         let load_rx = Some(spawn_load(cc.egui_ctx.clone()));
@@ -92,22 +98,63 @@ impl BargeApp {
             comp_choice: HashMap::new(),
             limit_mbps: 250,
             dry_run: false,
+            verify: true,
             job: Job::Idle,
             incomplete_jobs: crate::mover::journal::Journal::scan_incomplete().len(),
             initialized: false,
             zoom_factor: cfg.zoom_factor,
             window_size: (cfg.window_w, cfg.window_h),
             last_size_save: Instant::now(),
+            dialog_rx: None,
         }
     }
 
     fn save_config(&self) {
-        crate::config::Config {
-            zoom_factor: self.zoom_factor,
-            window_w: self.window_size.0,
-            window_h: self.window_size.1,
+        // Vorhandene Config laden, nur die eigenen Felder aktualisieren, damit
+        // extra_libraries u. Ä. erhalten bleiben.
+        let mut cfg = crate::config::Config::load();
+        cfg.zoom_factor = self.zoom_factor;
+        cfg.window_w = self.window_size.0;
+        cfg.window_h = self.window_size.1;
+        cfg.save();
+    }
+
+    /// Öffnet (in einem Hintergrund-Thread) den Ordnerdialog zum Hinzufügen
+    /// einer Library (§8.3).
+    fn open_add_library_dialog(&mut self) {
+        if self.dialog_rx.is_some() {
+            return; // schon offen
         }
-        .save();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let picked = rfd::FileDialog::new()
+                .set_title("Steam-Library-Ordner wählen (Root oder steamapps/)")
+                .pick_folder();
+            let _ = tx.send(picked);
+        });
+        self.dialog_rx = Some(rx);
+    }
+
+    /// Fügt einen gewählten Pfad als Library hinzu (persistiert) und lädt neu.
+    fn add_library(&mut self, ctx: &egui::Context, path: PathBuf) {
+        match crate::steam::discovery::normalize_root(&path) {
+            Some(root) => {
+                let mut cfg = crate::config::Config::load();
+                let s = root.to_string_lossy().to_string();
+                if !cfg.extra_libraries.iter().any(|p| p == &s) {
+                    cfg.extra_libraries.push(s);
+                    cfg.zoom_factor = self.zoom_factor;
+                    cfg.window_w = self.window_size.0;
+                    cfg.window_h = self.window_size.1;
+                    cfg.save();
+                }
+                self.reload(ctx);
+            }
+            None => {
+                self.load_error =
+                    Some(format!("Kein gültiger Steam-Library-Ordner: {}", path.display()));
+            }
+        }
     }
 
     /// Setzt den Zoom, wendet ihn an und speichert die Config.
@@ -177,6 +224,16 @@ impl eframe::App for BargeApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.track_window_size(ctx);
 
+        // --- Ergebnis des Ordnerdialogs abholen
+        if let Some(rx) = &self.dialog_rx {
+            if let Ok(result) = rx.try_recv() {
+                self.dialog_rx = None;
+                if let Some(path) = result {
+                    self.add_library(ctx, path);
+                }
+            }
+        }
+
         // --- Hintergrund-Laden abholen
         if let Some(rx) = &self.load_rx {
             if let Ok(res) = rx.try_recv() {
@@ -216,11 +273,19 @@ impl eframe::App for BargeApp {
         let loading = self.load_rx.is_some();
 
         let mut new_zoom: Option<f32> = None;
+        let mut open_dialog = false;
         egui::TopBottomPanel::top("header").show(ctx, |ui| {
             ui.add_space(4.0);
             ui.horizontal(|ui| {
                 ui.heading("barge");
                 ui.label("— Steam-Spiele sicher und gedrosselt verschieben");
+                if ui
+                    .button("+ Bibliothek…")
+                    .on_hover_text("Einen weiteren Steam-Library-Ordner hinzufügen (§8.3)")
+                    .clicked()
+                {
+                    open_dialog = true;
+                }
                 // Zoom-Regler rechts (persistiert).
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.button("A +").on_hover_text("Schrift größer").clicked() {
@@ -234,7 +299,7 @@ impl eframe::App for BargeApp {
                 });
             });
             // Optionszeile zentriert direkt unter dem Titel (§8.1).
-            settings::options_row(ui, &mut self.limit_mbps, &mut self.dry_run);
+            settings::options_row(ui, &mut self.limit_mbps, &mut self.dry_run, &mut self.verify);
             if self.incomplete_jobs > 0 {
                 ui.colored_label(
                     egui::Color32::from_rgb(0xd0, 0x90, 0x30),
@@ -248,6 +313,9 @@ impl eframe::App for BargeApp {
         });
         if let Some(z) = new_zoom {
             self.set_zoom(ctx, z);
+        }
+        if open_dialog {
+            self.open_add_library_dialog();
         }
 
         if loading {
@@ -375,7 +443,7 @@ impl eframe::App for BargeApp {
                 self.job = Job::Finished(dry_run_report(&queue));
             } else {
                 let rate = self.limit_mbps.saturating_mul(1_000_000);
-                self.job = Job::Running(job::start(queue, rate, ctx.clone()));
+                self.job = Job::Running(job::start(queue, rate, self.verify, ctx.clone()));
             }
         }
         if do_reload {
@@ -419,8 +487,24 @@ fn dry_run_report(queue: &[(Game, MovePlan)]) -> String {
 fn spawn_load(ctx: egui::Context) -> Receiver<Result<Vec<LibraryView>, String>> {
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
+        // Erkannte Libraries plus manuell hinzugefügte (§8.3), dedupliziert.
+        let mut libs = crate::steam::discovery::discover();
+        for p in crate::config::Config::load().extra_libraries {
+            if let Some(root) = crate::steam::discovery::normalize_root(std::path::Path::new(&p)) {
+                if !libs.iter().any(|l| l.path == root) {
+                    libs.push(crate::steam::library::Library::new(root));
+                }
+            }
+        }
+
+        // Steam-Bild-Cache (Cover) — nur in der Haupt-Installation vorhanden (§3.5).
+        let cache_root = libs
+            .iter()
+            .map(|l| l.path.join("appcache").join("librarycache"))
+            .find(|p| p.is_dir());
+
         let mut views = Vec::new();
-        for lib in crate::steam::discovery::discover() {
+        for lib in libs {
             let disk = lib.disk_space();
             let (games, _errors) = lib.games();
             let mut rows: Vec<GameRow> = games
@@ -431,12 +515,19 @@ fn spawn_load(ctx: egui::Context) -> Receiver<Result<Vec<LibraryView>, String>> 
                     let present = |k: ComponentKind| {
                         g.components.iter().any(|c| c.kind == k && c.present)
                     };
+                    let cover = cache_root.as_ref().and_then(|cr| {
+                        let p = cr
+                            .join(g.manifest.appid.to_string())
+                            .join("library_600x900.jpg");
+                        p.is_file().then_some(p)
+                    });
                     GameRow {
                         appid: g.manifest.appid,
                         name: g.manifest.name.clone(),
                         size,
                         blocked_reason: g.manifest.blocked_reason(),
                         is_tool: g.manifest.is_tool(),
+                        cover,
                         has_compatdata: present(ComponentKind::Compatdata),
                         has_workshop: present(ComponentKind::WorkshopContent),
                         has_shadercache: present(ComponentKind::Shadercache),
