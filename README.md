@@ -24,7 +24,10 @@ In Arbeit. Umsetzung in Stufen (siehe `docs/design.md`, §11):
 
 - [x] **Stufe 1 — Discovery + Parsing (CLI).** Libraries finden, Spiele mit
       realer On-Disk-Größe und Installationszustand auflisten. *Nutzbar.*
-- [ ] Stufe 2 — Kopier-Engine standalone (Throttle, `fsync`, `copy_file_range`)
+- [x] **Stufe 2 — Kopier-Engine standalone.** Sequenziell, gedrosselt
+      (Token-Pacer), periodischer `fsync`, `copy_file_range` mit `read/write`-
+      Fallback, **Sparse-Erhalt** (`SEEK_HOLE`/`SEEK_DATA`), Hardlinks,
+      Symlinks, Permissions + mtime. Als `barge copy`-Subcommand testbar.
 - [ ] Stufe 3 — Journal + Crash-Recovery
 - [ ] Stufe 4 — Move-Orchestrierung (Vorbedingungen, Prefix-Fix, Trockenlauf)
 - [ ] Stufe 5 — GUI (eframe/egui)
@@ -36,9 +39,11 @@ Reines Rust, Stufe 1 ist dependency-frei (nur `std` + libc-Syscalls):
 
 ```bash
 cargo build
-cargo run              # alle erkannten Libraries + Spiele auflisten
-cargo run -- <PFAD>    # bestimmten Library-Root (oder steamapps/) auflisten
-cargo test             # Unit-Tests (VDF-Parser, Größenformatierung)
+cargo run                        # alle erkannten Libraries + Spiele auflisten
+cargo run -- list <PFAD>         # bestimmten Library-Root (oder steamapps/) auflisten
+cargo run -- copy <SRC> <DST>    # Kopier-Engine standalone (Default max. 250 MB/s)
+cargo run -- copy <SRC> <DST> --limit 50    # gedrosselt auf 50 MB/s
+cargo test                       # Unit-Tests
 ```
 
 ## Lizenz
