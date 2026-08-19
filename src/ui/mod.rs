@@ -400,6 +400,7 @@ impl eframe::App for BargeApp {
         let mut open_dialog = false;
         let mut open_log = false;
         let mut open_config = false;
+        let mut open_jobs = false;
         egui::TopBottomPanel::top("header").show(ctx, |ui| {
             ui.add_space(4.0);
             ui.horizontal(|ui| {
@@ -429,6 +430,16 @@ impl eframe::App for BargeApp {
                     .clicked()
                 {
                     open_config = true;
+                }
+                // Nur wenn Job-Zustandsdateien existieren: Ordner öffnen (es
+                // können mehrere <uuid>.json sein, daher der Ordner).
+                if !self.incomplete.is_empty()
+                    && ui
+                        .button("Jobs")
+                        .on_hover_text("Öffnet den Ordner mit den Job-Zustandsdateien (jobs/*.json)")
+                        .clicked()
+                {
+                    open_jobs = true;
                 }
                 // Zoom-Regler rechts (persistiert).
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -492,6 +503,9 @@ impl eframe::App for BargeApp {
             if let Some(p) = crate::config::Config::path() {
                 open_path(p);
             }
+        }
+        if open_jobs {
+            open_path(crate::mover::journal::Journal::jobs_dir());
         }
         // Limit-Änderung (aus der Optionszeile) erkennen und vormerken.
         if self.limit_mbps != self.last_limit {
