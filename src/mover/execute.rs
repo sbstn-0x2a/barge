@@ -49,12 +49,9 @@ pub fn execute<F: FnMut(&Stats, f64)>(
         journal.set_component(item.kind.label(), ComponentState::InProgress)?;
         copier.copy_tree(&item.src, partial)?;
 
-        if item.kind == ComponentKind::Compatdata {
-            // §4.3 / §7.1 Schritt 5 — im .partial, vor dem rename.
-            fix_prefix(partial, &plan.source_library, &plan.target_library)?;
-        }
-
-        // §7.3 — schnelle Verifikation vor dem Commit. Bei Abweichung Abbruch;
+        // §7.3 — schnelle Verifikation der reinen Kopie, BEVOR der Prefix-Fix
+        // etwas verändert (der löscht u. a. pfx.lock, was sonst zu einer
+        // fälschlichen Dateizahl-Abweichung führt). Bei Abweichung Abbruch;
         // .partial bleibt, Quelle unangetastet.
         if verify {
             if let Err(msg) = crate::mover::verify::verify_quick(&item.src, partial) {
@@ -63,6 +60,11 @@ pub fn execute<F: FnMut(&Stats, f64)>(
                     format!("Verifikation fehlgeschlagen ({}): {}", item.kind.label(), msg),
                 ));
             }
+        }
+
+        if item.kind == ComponentKind::Compatdata {
+            // §4.3 / §7.1 Schritt 5 — im .partial, nach der Verifikation.
+            fix_prefix(partial, &plan.source_library, &plan.target_library)?;
         }
 
         journal.set_bytes_done(copier.stats().bytes);
