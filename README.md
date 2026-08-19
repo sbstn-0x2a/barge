@@ -73,6 +73,52 @@ cargo test                       # unit tests
 The interface language follows your locale and can be switched (DE/EN) in the
 window; it is remembered.
 
+## Command-line interface
+
+barge also works headlessly. The CLI is English-only (a fallback); the GUI is
+bilingual (DE/EN).
+
+- **`barge`** (or `barge gui`) — start the graphical interface (default).
+- **`barge list [PATH …]`** — list detected libraries and their games with real
+  on-disk size and install state (tools/runtimes shown separately). With paths,
+  list those specific library roots (or a `steamapps/` folder).
+  ```bash
+  barge list
+  barge list /mnt/Games/SteamLibrary
+  ```
+- **`barge copy <SRC> <DST> [--limit MB/s | --unlimited]`** — standalone copy
+  engine: throttled, sequential, with `fsync`. Copies any directory tree (not a
+  full Steam move). Default 250 MB/s.
+  ```bash
+  barge copy "$HOME/Games/SteamLibrary/steamapps/common/Some Game" /mnt/scratch --limit 100
+  ```
+- **`barge move <SRC-LIB> <DST-LIB> <APPID …> [options]`** — full transactional
+  move of one or more games (queue) with §5 preconditions, journal and crash
+  recovery. AppIDs come from `barge list`. Options: `--dry-run`, `--limit MB/s`,
+  `--keep-shadercache`, `--no-verify`.
+  ```bash
+  # Dry run: show the plan and all checks, touch nothing
+  barge move "$HOME/Games/SteamLibrary" /mnt/Games/SteamLibrary 2784470 --dry-run
+  # Move two games at 250 MB/s
+  barge move "$HOME/Games/SteamLibrary" /mnt/Games/SteamLibrary 2784470 960090 --limit 250
+  ```
+- **`barge recover [cleanup|resume|finish <ID>]`** — list unfinished jobs, or
+  clean up / resume / finish one by ID (the GUI can do this too).
+- **`barge --help`** — this help.
+
+## Detected Steam locations
+
+barge checks the standard Steam roots and then follows `libraryfolders.vdf` to
+find every registered library:
+
+- `~/.local/share/Steam`, `~/.steam/steam`, `~/.steam/root`
+- `~/.var/app/com.valvesoftware.Steam/.local/share/Steam` — **Flatpak Steam**
+
+All paths are canonicalized (symlinks resolved) and de-duplicated. Additional
+libraries on other drives are discovered via `libraryfolders.vdf`; you can also
+add folders manually in the GUI. `libraryfolders.vdf` is only ever read, never
+written.
+
 ## Platforms
 
 barge is Linux-only. Its core (Proton `compatdata`, `copy_file_range`,

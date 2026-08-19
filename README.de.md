@@ -99,6 +99,52 @@ cargo run -- recover             # unvollendete Jobs anzeigen / fortsetzen
 cargo test                       # Unit-Tests
 ```
 
+## Kommandozeile (CLI)
+
+barge funktioniert auch ohne GUI. Die CLI ist **nur auf Englisch** (Fallback);
+die GUI ist zweisprachig (DE/EN).
+
+- **`barge`** (oder `barge gui`) — grafische Oberfläche starten (Standard).
+- **`barge list [PFAD …]`** — erkannte Libraries und ihre Spiele mit realer
+  On-Disk-Größe und Installationszustand auflisten (Tools/Runtimes separat). Mit
+  Pfaden: diese Library-Roots (oder ein `steamapps/`-Verzeichnis) auflisten.
+  ```bash
+  barge list
+  barge list /mnt/Games/SteamLibrary
+  ```
+- **`barge copy <QUELLE> <ZIEL> [--limit MB/s | --unlimited]`** — Kopier-Engine
+  standalone: gedrosselt, sequenziell, mit `fsync`. Kopiert einen beliebigen
+  Verzeichnisbaum (kein vollständiger Steam-Move). Default 250 MB/s.
+  ```bash
+  barge copy "$HOME/Games/SteamLibrary/steamapps/common/Ein Spiel" /mnt/scratch --limit 100
+  ```
+- **`barge move <QUELL-LIB> <ZIEL-LIB> <APPID …> [Optionen]`** — vollständiger,
+  transaktionaler Move eines oder mehrerer Spiele (Warteschlange) mit
+  §5-Vorbedingungen, Journal und Crash-Recovery. AppIDs aus `barge list`.
+  Optionen: `--dry-run`, `--limit MB/s`, `--keep-shadercache`, `--no-verify`.
+  ```bash
+  # Trockenlauf: Plan + alle Prüfungen zeigen, nichts anfassen
+  barge move "$HOME/Games/SteamLibrary" /mnt/Games/SteamLibrary 2784470 --dry-run
+  # Zwei Spiele mit 250 MB/s verschieben
+  barge move "$HOME/Games/SteamLibrary" /mnt/Games/SteamLibrary 2784470 960090 --limit 250
+  ```
+- **`barge recover [cleanup|resume|finish <ID>]`** — unvollendete Jobs anzeigen
+  bzw. eine per ID aufräumen / fortsetzen / abschließen (geht auch in der GUI).
+- **`barge --help`** — diese Hilfe.
+
+## Erkannte Steam-Orte
+
+barge prüft die Standard-Steam-Roots und folgt dann `libraryfolders.vdf`, um
+alle registrierten Libraries zu finden:
+
+- `~/.local/share/Steam`, `~/.steam/steam`, `~/.steam/root`
+- `~/.var/app/com.valvesoftware.Steam/.local/share/Steam` — **Flatpak-Steam**
+
+Alle Pfade werden canonicalisiert (Symlinks aufgelöst) und dedupliziert.
+Weitere Libraries auf anderen Platten kommen über `libraryfolders.vdf` dazu; in
+der GUI lassen sich Ordner auch manuell hinzufügen. `libraryfolders.vdf` wird
+ausschließlich gelesen, nie geschrieben.
+
 ## Lizenz
 
 GPL-3.0
