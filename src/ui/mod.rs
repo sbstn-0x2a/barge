@@ -73,8 +73,10 @@ pub struct BargeApp {
     zoom_factor: f32,
     /// Fenster-Innengröße in **logischen Pixeln** (nicht egui-Punkten).
     window_size: (f32, f32),
-    /// Breite des Quell-Panels (egui-Punkte).
+    /// Breite des Quell-Panels (egui-Punkte), wenn der Trenner frei ist.
     panel_w: f32,
+    /// Trenner mittig halten, bis gezogen (Doppelklick zentriert wieder).
+    panel_centered: bool,
     /// Zuletzt gespeicherter Limit-Wert (zum Erkennen von Änderungen).
     last_limit: u64,
     /// Vorherige Quell-/Ziel-Auswahl (zum Erkennen von Änderungen).
@@ -120,6 +122,7 @@ impl BargeApp {
             zoom_factor: cfg.zoom_factor,
             window_size: (cfg.window_w, cfg.window_h),
             panel_w: cfg.panel_w,
+            panel_centered: cfg.divider_centered,
             last_limit: cfg.limit_mbps,
             prev_source_idx: 0,
             prev_target_idx: 0,
@@ -138,6 +141,7 @@ impl BargeApp {
         cfg.window_w = self.window_size.0;
         cfg.window_h = self.window_size.1;
         cfg.panel_w = self.panel_w;
+        cfg.divider_centered = self.panel_centered;
         cfg.limit_mbps = self.limit_mbps;
         cfg.grid_view = self.grid_view;
         // Quelle/Ziel nur überschreiben, wenn die Libraries geladen sind.
@@ -466,37 +470,74 @@ impl eframe::App for BargeApp {
             ui.add_space(6.0);
         });
 
-        // Gleicher Frame wie das CentralPanel (Ziel), damit beide Panels
-        // identische Innenränder haben und die Kopfzeilen auf einer Höhe liegen.
-        // Breite begrenzen, damit das Panel nie das ganze Fenster einnimmt.
-        let panel_frame = egui::Frame::central_panel(&ctx.style());
-        let max_panel = (ctx.screen_rect().width() * 0.7).max(320.0);
-        let src_resp = egui::SidePanel::left("source")
-            .resizable(true)
-            .frame(panel_frame)
-            .min_width(300.0)
-            .max_width(max_panel)
-            .default_width(self.panel_w.min(max_panel))
-            .show(ctx, |ui| {
-                panels::source_panel(
-                    ui,
-                    &self.libraries,
-                    &mut self.source_idx,
-                    self.target_idx,
-                    self.grid_view,
-                    &mut self.selected,
-                    &mut self.comp_choice,
+        // Zwei-Panel-Split mit eigenem Trenner: standardmäßig mittig (folgt der
+        // Fensterbreite); Ziehen gibt ihn frei, Doppelklick zentriert wieder.
+        egui::CentralPanel::default().show(ctx, |ui| {
+            const SEP: f32 = 8.0;
+            const MIN_SIDE: f32 = 300.0;
+            let total = ui.available_width();
+            let avail_h = ui.available_height();
+            let max_left = (total - SEP - MIN_SIDE).max(MIN_SIDE);
+            let left_w = if self.panel_centered {
+                ((total - SEP) * 0.5).clamp(MIN_SIDE, max_left)
+            } else {
+                self.panel_w.clamp(MIN_SIDE, max_left)
+            };
+
+            ui.horizontal_top(|ui| {
+                ui.allocate_ui_with_layout(
+                    egui::vec2(left_w, avail_h),
+                    egui::Layout::top_down(egui::Align::Min),
+                    |ui| {
+                        panels::source_panel(
+                            ui,
+                            &self.libraries,
+                            &mut self.source_idx,
+                            self.target_idx,
+                            self.grid_view,
+                            &mut self.selected,
+                            &mut self.comp_choice,
+                        );
+                    },
+                );
+
+                // Trenner: anklickbar/ziehbar.
+                let (rect, resp) =
+                    ui.allocate_exact_size(egui::vec2(SEP, avail_h), egui::Sense::click_and_drag());
+                let hovered = resp.hovered() || resp.dragged();
+                let color = if hovered {
+                    ui.visuals().widgets.hovered.fg_stroke.color
+                } else {
+                    ui.visuals().widgets.noninteractive.bg_stroke.color
+                };
+                ui.painter()
+                    .vline(rect.center().x, rect.y_range(), egui::Stroke::new(2.0, color));
+                if hovered {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+                }
+                if resp.double_clicked() {
+                    self.panel_centered = true;
+                    self.dirty = true;
+                } else if resp.dragged() {
+                    self.panel_centered = false;
+                    self.panel_w = (left_w + resp.drag_delta().x).clamp(MIN_SIDE, max_left);
+                    self.dirty = true;
+                }
+
+                ui.allocate_ui_with_layout(
+                    egui::vec2(ui.available_width(), avail_h),
+                    egui::Layout::top_down(egui::Align::Min),
+                    |ui| {
+                        panels::target_panel(
+                            ui,
+                            &self.libraries,
+                            &mut self.target_idx,
+                            self.source_idx,
+                            self.grid_view,
+                        );
+                    },
                 );
             });
-        // Vom Nutzer gezogene Panelbreite merken (persistieren), begrenzt.
-        let w = src_resp.response.rect.width().clamp(300.0, max_panel);
-        if (w - self.panel_w).abs() > 2.0 {
-            self.panel_w = w;
-            self.dirty = true;
-        }
-
-        egui::CentralPanel::default().show(ctx, |ui| {
-            panels::target_panel(ui, &self.libraries, &mut self.target_idx, self.source_idx, self.grid_view);
         });
 
         // --- Ergebnis-Fenster nach Abschluss eines Jobs (kopierbar + OK).

@@ -14,8 +14,10 @@ pub struct Config {
     /// egui-Punkten — die skalieren mit dem Zoom).
     pub window_w: f32,
     pub window_h: f32,
-    /// Breite des Quell-Panels (egui-Punkte).
+    /// Breite des Quell-Panels (egui-Punkte), wenn der Trenner frei gezogen ist.
     pub panel_w: f32,
+    /// Trenner mittig halten (folgt der Fenstergröße), bis er gezogen wird.
+    pub divider_centered: bool,
     /// Zuletzt eingestellte Bandbreiten-Obergrenze (0 = unbegrenzt).
     pub limit_mbps: u64,
     /// Kachel-Ansicht (Cover-Grid) statt Liste.
@@ -36,6 +38,7 @@ impl Default for Config {
             window_w: 980.0,
             window_h: 660.0,
             panel_w: 480.0,
+            divider_centered: true,
             limit_mbps: 250,
             grid_view: false,
             source_lib: String::new(),
