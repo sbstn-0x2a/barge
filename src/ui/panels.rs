@@ -4,8 +4,24 @@ use std::collections::HashSet;
 
 use eframe::egui;
 
-use super::LibraryView;
+use super::{GameRow, LibraryView};
 use crate::util::human_size;
+
+/// Kleine, dezente Komponenten-Marker rechts neben der Größe (§4).
+fn component_tags(ui: &mut egui::Ui, row: &GameRow) {
+    let tag = |ui: &mut egui::Ui, text: &str, hover: &str| {
+        ui.weak(text).on_hover_text(hover);
+    };
+    if row.has_shadercache {
+        tag(ui, "shader", "shadercache vorhanden (Default: löschen)");
+    }
+    if row.has_workshop {
+        tag(ui, "workshop", "Workshop-Mods vorhanden");
+    }
+    if row.has_compatdata {
+        tag(ui, "compat", "compatdata vorhanden (Savegames + Proton-Prefix)");
+    }
+}
 
 fn library_combo(ui: &mut egui::Ui, id: &str, libraries: &[LibraryView], idx: &mut usize) {
     let current = libraries.get(*idx).map(|l| l.label.as_str()).unwrap_or("—");
@@ -100,6 +116,8 @@ pub fn source_panel(
                             }
                             None => {
                                 ui.monospace(human_size(row.size));
+                                // Marker links neben der Größe (§4).
+                                component_tags(ui, row);
                             }
                         }
                     });

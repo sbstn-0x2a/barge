@@ -12,7 +12,7 @@ use eframe::egui;
 
 use crate::mover::copy::Stats;
 use crate::mover::journal::{JobState, Journal};
-use crate::mover::plan::MovePlan;
+use crate::mover::plan::{Action, MovePlan};
 use crate::mover::{execute, preconditions};
 use crate::steam::game::Game;
 
@@ -21,7 +21,7 @@ pub enum Msg {
     Started { name: String, bytes_total: u64 },
     Progress { bytes_done: u64, rate_mbps: f64 },
     Skipped { name: String, reasons: Vec<String> },
-    Done { name: String },
+    Done { name: String, moved: Vec<String>, deleted: Vec<String> },
     Failed { name: String, error: String },
     Cancelled,
     AllDone { moved: usize, total: usize },
@@ -59,14 +59,18 @@ impl RunningJob {
                     self.rate_mbps = rate_mbps;
                 }
                 Msg::Skipped { name, reasons } => {
-                    self.log.push(format!("übersprungen: {} — {}", name, reasons.join("; ")));
+                    self.log.push(format!("⧗ übersprungen: {} — {}", name, reasons.join("; ")));
                 }
-                Msg::Done { name } => {
+                Msg::Done { name, moved, deleted } => {
                     self.queue_done += 1;
-                    self.log.push(format!("fertig: {}", name));
+                    let mut line = format!("✓ {} — verschoben: {}", name, moved.join(", "));
+                    if !deleted.is_empty() {
+                        line.push_str(&format!("; gelöscht: {}", deleted.join(", ")));
+                    }
+                    self.log.push(line);
                 }
                 Msg::Failed { name, error } => {
-                    self.log.push(format!("FEHLER: {} — {}", name, error));
+                    self.log.push(format!("✗ FEHLER: {} — {}", name, error));
                 }
                 Msg::Cancelled => {
                     self.log.push("abgebrochen — .partial aufgeräumt, Quelle intakt".into());
@@ -154,7 +158,23 @@ pub fn start(jobs: Vec<(Game, MovePlan)>, rate_bytes: u64, ctx: egui::Context) -
             match execute::execute(plan, rate_bytes, false, worker_cancel.clone(), &mut journal, progress) {
                 Ok(_) => {
                     moved += 1;
-                    let _ = tx.send(Msg::Done { name: plan.name.clone() });
+                    let moved_comps: Vec<String> = plan
+                        .items
+                        .iter()
+                        .filter(|i| i.action != Action::DeleteSource)
+                        .map(|i| i.kind.label().to_string())
+                        .collect();
+                    let deleted_comps: Vec<String> = plan
+                        .items
+                        .iter()
+                        .filter(|i| i.action == Action::DeleteSource)
+                        .map(|i| i.kind.label().to_string())
+                        .collect();
+                    let _ = tx.send(Msg::Done {
+                        name: plan.name.clone(),
+                        moved: moved_comps,
+                        deleted: deleted_comps,
+                    });
                     ctx.request_repaint();
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {

@@ -33,6 +33,10 @@ pub struct GameRow {
     pub size: u64,
     pub blocked_reason: Option<String>,
     pub is_tool: bool,
+    /// Vorhandene, sichtbar zu machende Zusatzkomponenten (§4).
+    pub has_compatdata: bool,
+    pub has_workshop: bool,
+    pub has_shadercache: bool,
     pub game: Game,
 }
 
@@ -54,6 +58,19 @@ pub struct BargeApp {
     dry_run: bool,
     job: Job,
     incomplete_jobs: usize,
+    /// Quelle/Ziel nur beim ersten Laden vorbelegen, danach die Wahl des
+    /// Nutzers über Reloads hinweg erhalten.
+    initialized: bool,
+}
+
+/// Aggregierte Kennzahlen der aktuellen Auswahl (für die Zusammenfassung).
+#[derive(Default)]
+pub struct SelectionSummary {
+    pub count: usize,
+    pub bytes: u64,
+    pub compatdata: usize,
+    pub workshop: usize,
+    pub shadercache: usize,
 }
 
 impl BargeApp {
@@ -71,22 +88,25 @@ impl BargeApp {
             dry_run: false,
             job: Job::Idle,
             incomplete_jobs: crate::mover::journal::Journal::scan_incomplete().len(),
+            initialized: false,
         }
     }
 
-    fn selection_stats(&self) -> (usize, u64) {
+    fn selection_summary(&self) -> SelectionSummary {
+        let mut s = SelectionSummary::default();
         let Some(src) = self.libraries.get(self.source_idx) else {
-            return (0, 0);
+            return s;
         };
-        let mut n = 0;
-        let mut bytes = 0;
         for row in &src.games {
             if self.selected.contains(&row.appid) {
-                n += 1;
-                bytes += row.size;
+                s.count += 1;
+                s.bytes += row.size;
+                s.compatdata += row.has_compatdata as usize;
+                s.workshop += row.has_workshop as usize;
+                s.shadercache += row.has_shadercache as usize;
             }
         }
-        (n, bytes)
+        s
     }
 
     /// Baut die (Spiel, Plan)-Warteschlange aus der aktuellen Auswahl.
@@ -122,8 +142,17 @@ impl eframe::App for BargeApp {
                 match res {
                     Ok(views) => {
                         self.libraries = views;
-                        self.source_idx = 0;
-                        self.target_idx = if self.libraries.len() > 1 { 1 } else { 0 };
+                        let n = self.libraries.len();
+                        if !self.initialized {
+                            // Erstbelegung: Quelle 0, Ziel 1 (falls vorhanden).
+                            self.source_idx = 0;
+                            self.target_idx = if n > 1 { 1 } else { 0 };
+                            self.initialized = true;
+                        } else {
+                            // Reload: die Wahl des Nutzers behalten, nur begrenzen.
+                            self.source_idx = self.source_idx.min(n.saturating_sub(1));
+                            self.target_idx = self.target_idx.min(n.saturating_sub(1));
+                        }
                     }
                     Err(e) => self.load_error = Some(e),
                 }
@@ -180,9 +209,10 @@ impl eframe::App for BargeApp {
             return;
         }
 
-        let (sel_count, sel_bytes) = self.selection_stats();
+        let summary = self.selection_summary();
         let mut start_move = false;
         let mut do_reload = false;
+        let mut copy_to_clipboard: Option<String> = None;
 
         egui::TopBottomPanel::bottom("actions").show(ctx, |ui| {
             ui.add_space(6.0);
@@ -190,14 +220,9 @@ impl eframe::App for BargeApp {
                 Job::Running(r) => {
                     progress::view(ui, r);
                 }
-                Job::Finished(msg) => {
-                    ui.label("Ergebnis:");
-                    egui::ScrollArea::vertical().max_height(140.0).show(ui, |ui| {
-                        ui.monospace(msg.as_str());
-                    });
-                    if ui.button("Zurück zur Auswahl").clicked() {
-                        do_reload = true;
-                    }
+                Job::Finished(_) => {
+                    // Ergebnis wird als eigenes Fenster gezeigt (siehe unten).
+                    ui.label("Move abgeschlossen — siehe Ergebnis-Fenster.");
                 }
                 Job::Idle => {
                     settings::bar(
@@ -205,11 +230,10 @@ impl eframe::App for BargeApp {
                         &mut self.limit_mbps,
                         &mut self.delete_shadercache,
                         &mut self.dry_run,
-                        sel_count,
-                        sel_bytes,
+                        &summary,
                     );
                     let same = self.source_idx == self.target_idx;
-                    let can_go = sel_count > 0 && !same;
+                    let can_go = summary.count > 0 && !same;
                     ui.horizontal(|ui| {
                         let label = if self.dry_run { "Trockenlauf ▶" } else { "Verschieben →" };
                         if ui.add_enabled(can_go, egui::Button::new(label)).clicked() {
@@ -217,7 +241,7 @@ impl eframe::App for BargeApp {
                         }
                         if same {
                             ui.colored_label(egui::Color32::LIGHT_RED, "Quelle und Ziel sind identisch");
-                        } else if sel_count == 0 {
+                        } else if summary.count == 0 {
                             ui.label("keine Spiele ausgewählt");
                         }
                     });
@@ -237,7 +261,39 @@ impl eframe::App for BargeApp {
             panels::target_panel(ui, &self.libraries, &mut self.target_idx, self.source_idx);
         });
 
+        // --- Ergebnis-Fenster nach Abschluss eines Jobs (kopierbar + OK).
+        if let Job::Finished(msg) = &self.job {
+            egui::Window::new("Move abgeschlossen")
+                .collapsible(false)
+                .resizable(true)
+                .default_width(560.0)
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .show(ctx, |ui| {
+                    ui.label("Zusammenfassung der verschobenen Komponenten:");
+                    egui::ScrollArea::vertical().max_height(280.0).show(ui, |ui| {
+                        ui.add(
+                            egui::TextEdit::multiline(&mut msg.as_str())
+                                .font(egui::TextStyle::Monospace)
+                                .desired_width(f32::INFINITY)
+                                .interactive(false),
+                        );
+                    });
+                    ui.add_space(6.0);
+                    ui.horizontal(|ui| {
+                        if ui.button("📋 In Zwischenablage kopieren").clicked() {
+                            copy_to_clipboard = Some(msg.clone());
+                        }
+                        if ui.button("OK").clicked() {
+                            do_reload = true;
+                        }
+                    });
+                });
+        }
+
         // --- Aktionen nach dem Rendern ausführen (Borrow-Konflikte vermeiden)
+        if let Some(text) = copy_to_clipboard {
+            ctx.copy_text(text);
+        }
         if start_move {
             let queue = self.build_queue();
             if self.dry_run {
@@ -286,13 +342,20 @@ fn spawn_load(ctx: egui::Context) -> Receiver<Result<Vec<LibraryView>, String>> 
             let mut rows: Vec<GameRow> = games
                 .into_iter()
                 .map(|g| {
+                    use crate::steam::game::ComponentKind;
                     let size = g.moved_size();
+                    let present = |k: ComponentKind| {
+                        g.components.iter().any(|c| c.kind == k && c.present)
+                    };
                     GameRow {
                         appid: g.manifest.appid,
                         name: g.manifest.name.clone(),
                         size,
                         blocked_reason: g.manifest.blocked_reason(),
                         is_tool: g.manifest.is_tool(),
+                        has_compatdata: present(ComponentKind::Compatdata),
+                        has_workshop: present(ComponentKind::WorkshopContent),
+                        has_shadercache: present(ComponentKind::Shadercache),
                         game: g,
                     }
                 })
