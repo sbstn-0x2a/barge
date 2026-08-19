@@ -537,16 +537,27 @@ impl eframe::App for BargeApp {
                         }
 
                         // Recovery-Button, falls unvollendete Jobs existieren (§7.2).
+                        // Eigene Warn-Farben (Amber-Füllung, schwarzer Text), damit
+                        // der Knopf in jedem Theme klar erkennbar ist.
                         if !self.incomplete.is_empty() {
                             ui.add_space(6.0);
+                            let amber = egui::Color32::from_rgb(0xE6, 0xA2, 0x23);
+                            let text = egui::RichText::new(format!(
+                                "(!) Unvollendete Jobs ({})",
+                                self.incomplete.len()
+                            ))
+                            .color(egui::Color32::BLACK)
+                            .strong();
                             if ui
-                                .add(egui::Button::new(egui::RichText::new(format!(
-                                    "(!) Unvollendete Jobs ({})…",
-                                    self.incomplete.len()
-                                ))))
+                                .add(
+                                    egui::Button::new(text)
+                                        .fill(amber)
+                                        .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(0x8a, 0x5d, 0x00)))
+                                        .min_size(egui::vec2(240.0, 30.0)),
+                                )
                                 .on_hover_text(
                                     "Beim letzten Mal unterbrochene Move-Jobs (z. B. durch Absturz \
-                                     oder Abbruch). Hier ansehen, aufräumen oder fortsetzen — kein \
+                                     oder Abbruch). Hier ansehen, verwerfen oder fortsetzen — kein \
                                      Terminal nötig.",
                                 )
                                 .clicked()
