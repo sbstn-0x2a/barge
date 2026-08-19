@@ -1,0 +1,94 @@
+name: Release
+
+# Baut Release-Artefakte, wenn ein Version-Tag (v*) gepusht wird, und hängt sie
+# ans GitHub-Release: AppImage (distri-übergreifend), portables Tarball, .deb, .rpm.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust-Toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build-Abhängigkeiten (eframe/glow, Wayland/X11)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgl1-mesa-dev libxkbcommon-dev libwayland-dev \
+            libx11-dev libxrandr-dev libxi-dev libxcursor-dev \
+            libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libssl-dev pkg-config
+
+      - name: Release-Binary bauen
+        run: cargo build --release --locked
+
+      - name: Version aus Tag ableiten
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      # ---- portables Tarball ---------------------------------------------
+      - name: Tarball packen
+        run: |
+          V="${{ steps.ver.outputs.version }}"
+          DIR="barge-${V}-x86_64-linux"
+          mkdir -p "$DIR"
+          cp target/release/barge "$DIR/"
+          cp README.md LICENSE "$DIR/"
+          cp -r assets "$DIR/assets"
+          tar czf "${DIR}.tar.gz" "$DIR"
+
+      # ---- .deb -----------------------------------------------------------
+      - name: cargo-deb
+        run: |
+          cargo install cargo-deb --locked
+          cargo deb --no-build --output "barge_${{ steps.ver.outputs.version }}_amd64.deb"
+
+      # ---- .rpm -----------------------------------------------------------
+      - name: cargo-generate-rpm
+        run: |
+          cargo install cargo-generate-rpm --locked
+          cargo generate-rpm --output "barge-${{ steps.ver.outputs.version }}-1.x86_64.rpm"
+
+      # ---- AppImage -------------------------------------------------------
+      - name: AppImage bauen
+        run: |
+          V="${{ steps.ver.outputs.version }}"
+          APPDIR=AppDir
+          install -Dm755 target/release/barge "$APPDIR/usr/bin/barge"
+          install -Dm644 assets/io.schnetter.Barge.desktop "$APPDIR/usr/share/applications/io.schnetter.Barge.desktop"
+          install -Dm644 assets/io.schnetter.Barge.desktop "$APPDIR/io.schnetter.Barge.desktop"
+          for s in 16 32 48 64 128 256 512; do
+            install -Dm644 "assets/icons/hicolor/${s}x${s}/apps/io.schnetter.Barge.png" \
+              "$APPDIR/usr/share/icons/hicolor/${s}x${s}/apps/io.schnetter.Barge.png"
+          done
+          install -Dm644 assets/icons/hicolor/256x256/apps/io.schnetter.Barge.png "$APPDIR/io.schnetter.Barge.png"
+          cat > "$APPDIR/AppRun" <<'EOF'
+          #!/bin/sh
+          HERE="$(dirname "$(readlink -f "$0")")"
+          exec "$HERE/usr/bin/barge" "$@"
+          EOF
+          chmod +x "$APPDIR/AppRun"
+          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool-x86_64.AppImage
+          ARCH=x86_64 ./appimagetool-x86_64.AppImage --appimage-extract-and-run "$APPDIR" \
+            "barge-${V}-x86_64.AppImage"
+
+      - name: Release veröffentlichen
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            barge-*-x86_64-linux.tar.gz
+            barge_*_amd64.deb
+            barge-*-1.x86_64.rpm
+            barge-*-x86_64.AppImage
+          generate_release_notes: true

@@ -1,0 +1,37 @@
+# Maintainer: sbstn-0x2a
+pkgname=barge
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Move Steam games between libraries, safely and at your own pace"
+arch=('x86_64')
+url="https://github.com/sbstn-0x2a/barge"
+license=('GPL-3.0-only')
+depends=('gcc-libs' 'libxkbcommon')
+makedepends=('cargo')
+source=("$pkgname-$pkgver.tar.gz::https://github.com/sbstn-0x2a/barge/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+prepare() {
+  cd "$pkgname-$pkgver"
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo build --release --locked
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  install -Dm755 target/release/barge "$pkgdir/usr/bin/barge"
+  install -Dm644 assets/io.schnetter.Barge.desktop \
+    "$pkgdir/usr/share/applications/io.schnetter.Barge.desktop"
+  install -Dm644 assets/io.schnetter.Barge.svg \
+    "$pkgdir/usr/share/icons/hicolor/scalable/apps/io.schnetter.Barge.svg"
+  for s in 16 32 48 64 128 256 512; do
+    install -Dm644 "assets/icons/hicolor/${s}x${s}/apps/io.schnetter.Barge.png" \
+      "$pkgdir/usr/share/icons/hicolor/${s}x${s}/apps/io.schnetter.Barge.png"
+  done
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

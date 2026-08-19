@@ -1105,6 +1105,22 @@ fn contrast_visuals() -> egui::Visuals {
     v
 }
 
+/// Lädt das eingebettete App-Icon als Fenster-Icon.
+fn load_icon() -> egui::IconData {
+    let bytes = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/assets/io.schnetter.Barge-256.png"
+    ));
+    match image::load_from_memory(bytes) {
+        Ok(img) => {
+            let img = img.to_rgba8();
+            let (width, height) = img.dimensions();
+            egui::IconData { rgba: img.into_raw(), width, height }
+        }
+        Err(_) => egui::IconData::default(),
+    }
+}
+
 /// Startet die grafische Oberfläche (§8). Blockiert bis das Fenster schließt.
 pub fn run() -> eframe::Result<()> {
     let cfg = crate::config::Config::load();
@@ -1112,7 +1128,9 @@ pub fn run() -> eframe::Result<()> {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([cfg.window_w, cfg.window_h])
             .with_min_inner_size([720.0, 480.0])
-            .with_title("barge"),
+            .with_title("barge")
+            .with_app_id("io.schnetter.Barge")
+            .with_icon(load_icon()),
         ..Default::default()
     };
     eframe::run_native("barge", options, Box::new(|cc| Ok(Box::new(BargeApp::new(cc)))))

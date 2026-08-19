@@ -23,3 +23,46 @@ ureq = "2"           # Cover vom Steam-CDN laden und lokal cachen (§3.5)
 
 [profile.release]
 opt-level = 2
+
+# ---------------------------------------------------------------- Packaging
+# .deb via `cargo deb`, .rpm via `cargo generate-rpm` (in der CI installiert).
+
+[package.metadata.deb]
+maintainer = "sbstn-0x2a"
+license-file = ["LICENSE", "0"]
+section = "utils"
+priority = "optional"
+extended-description = "GUI-Tool zum sicheren, gedrosselten Verschieben von Steam-Spielen zwischen Libraries unter Linux — bildet bewusst ein niedriges I/O-Lastprofil nach, um Freezes bei externen NVMe-Gehäusen (USB4) zu vermeiden."
+assets = [
+    ["target/release/barge", "usr/bin/", "755"],
+    ["assets/io.schnetter.Barge.desktop", "usr/share/applications/", "644"],
+    ["assets/io.schnetter.Barge.svg", "usr/share/icons/hicolor/scalable/apps/io.schnetter.Barge.svg", "644"],
+    ["assets/icons/hicolor/16x16/apps/io.schnetter.Barge.png", "usr/share/icons/hicolor/16x16/apps/io.schnetter.Barge.png", "644"],
+    ["assets/icons/hicolor/32x32/apps/io.schnetter.Barge.png", "usr/share/icons/hicolor/32x32/apps/io.schnetter.Barge.png", "644"],
+    ["assets/icons/hicolor/48x48/apps/io.schnetter.Barge.png", "usr/share/icons/hicolor/48x48/apps/io.schnetter.Barge.png", "644"],
+    ["assets/icons/hicolor/64x64/apps/io.schnetter.Barge.png", "usr/share/icons/hicolor/64x64/apps/io.schnetter.Barge.png", "644"],
+    ["assets/icons/hicolor/128x128/apps/io.schnetter.Barge.png", "usr/share/icons/hicolor/128x128/apps/io.schnetter.Barge.png", "644"],
+    ["assets/icons/hicolor/256x256/apps/io.schnetter.Barge.png", "usr/share/icons/hicolor/256x256/apps/io.schnetter.Barge.png", "644"],
+    ["assets/icons/hicolor/512x512/apps/io.schnetter.Barge.png", "usr/share/icons/hicolor/512x512/apps/io.schnetter.Barge.png", "644"],
+    ["README.md", "usr/share/doc/barge/README.md", "644"],
+]
+
+[package.metadata.generate-rpm]
+assets = [
+    { source = "target/release/barge", dest = "/usr/bin/barge", mode = "755" },
+    { source = "assets/io.schnetter.Barge.desktop", dest = "/usr/share/applications/io.schnetter.Barge.desktop", mode = "644" },
+    { source = "assets/io.schnetter.Barge.svg", dest = "/usr/share/icons/hicolor/scalable/apps/io.schnetter.Barge.svg", mode = "644" },
+    { source = "assets/icons/hicolor/16x16/apps/io.schnetter.Barge.png", dest = "/usr/share/icons/hicolor/16x16/apps/io.schnetter.Barge.png", mode = "644" },
+    { source = "assets/icons/hicolor/32x32/apps/io.schnetter.Barge.png", dest = "/usr/share/icons/hicolor/32x32/apps/io.schnetter.Barge.png", mode = "644" },
+    { source = "assets/icons/hicolor/48x48/apps/io.schnetter.Barge.png", dest = "/usr/share/icons/hicolor/48x48/apps/io.schnetter.Barge.png", mode = "644" },
+    { source = "assets/icons/hicolor/64x64/apps/io.schnetter.Barge.png", dest = "/usr/share/icons/hicolor/64x64/apps/io.schnetter.Barge.png", mode = "644" },
+    { source = "assets/icons/hicolor/128x128/apps/io.schnetter.Barge.png", dest = "/usr/share/icons/hicolor/128x128/apps/io.schnetter.Barge.png", mode = "644" },
+    { source = "assets/icons/hicolor/256x256/apps/io.schnetter.Barge.png", dest = "/usr/share/icons/hicolor/256x256/apps/io.schnetter.Barge.png", mode = "644" },
+    { source = "assets/icons/hicolor/512x512/apps/io.schnetter.Barge.png", dest = "/usr/share/icons/hicolor/512x512/apps/io.schnetter.Barge.png", mode = "644" },
+    { source = "README.md", dest = "/usr/share/doc/barge/README.md", mode = "644" },
+    { source = "LICENSE", dest = "/usr/share/licenses/barge/LICENSE", mode = "644" },
+]
+
+[package.metadata.generate-rpm.requires]
+# Laufzeit-Bibliotheken für die egui/glow-GUI werden i. d. R. vom Desktop
+# bereitgestellt; keine harten RPM-Abhängigkeiten erzwingen.

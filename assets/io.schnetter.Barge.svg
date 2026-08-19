@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
+  <!-- barge — Lastkahn: flacher Frachtkahn mit gestapelter Ladung auf Wasser -->
+  <defs>
+    <linearGradient id="water" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#173a56"/>
+      <stop offset="1" stop-color="#0c1e2e"/>
+    </linearGradient>
+    <linearGradient id="hull" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#39434f"/>
+      <stop offset="1" stop-color="#232b33"/>
+    </linearGradient>
+    <linearGradient id="crate" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f2b23a"/>
+      <stop offset="1" stop-color="#d98e16"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Hintergrund -->
+  <rect x="0" y="0" width="256" height="256" rx="52" fill="url(#water)"/>
+
+  <!-- Wellen -->
+  <g fill="none" stroke="#2b6f9e" stroke-width="6" stroke-linecap="round" opacity="0.55">
+    <path d="M28 196 q16 -12 32 0 t32 0 t32 0 t32 0 t32 0 t32 0"/>
+    <path d="M40 216 q16 -12 32 0 t32 0 t32 0 t32 0 t32 0" opacity="0.7"/>
+  </g>
+
+  <!-- Ladung: gestapelte Container/Kisten -->
+  <g stroke="#7a4e08" stroke-width="3">
+    <rect x="70"  y="120" width="44" height="40" rx="4" fill="url(#crate)"/>
+    <rect x="118" y="120" width="44" height="40" rx="4" fill="url(#crate)"/>
+    <rect x="166" y="120" width="30" height="40" rx="4" fill="url(#crate)"/>
+    <rect x="94"  y="82"  width="44" height="38" rx="4" fill="url(#crate)"/>
+    <rect x="142" y="82"  width="30" height="38" rx="4" fill="url(#crate)"/>
+  </g>
+  <!-- Container-Rippen -->
+  <g stroke="#b9800f" stroke-width="2" opacity="0.6">
+    <line x1="84"  y1="124" x2="84"  y2="156"/>
+    <line x1="100" y1="124" x2="100" y2="156"/>
+    <line x1="132" y1="124" x2="132" y2="156"/>
+    <line x1="148" y1="124" x2="148" y2="156"/>
+    <line x1="108" y1="86"  x2="108" y2="116"/>
+    <line x1="124" y1="86"  x2="124" y2="116"/>
+  </g>
+
+  <!-- Rumpf (flacher Kahn) -->
+  <path d="M44 160 L212 160 L196 196 Q194 200 188 200 L68 200 Q62 200 60 196 Z" fill="url(#hull)" stroke="#171d23" stroke-width="3"/>
+  <!-- Deckskante -->
+  <rect x="44" y="158" width="168" height="8" rx="3" fill="#4a5663"/>
+</svg>

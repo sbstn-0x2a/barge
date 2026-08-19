@@ -40,10 +40,22 @@ In Arbeit. Umsetzung in Stufen (siehe `docs/design.md`, §11):
       Auswahl-Checkboxen, Ziel, max.-Rate-Slider, Optionen, Trockenlauf.
       Verschieben läuft im Worker-Thread mit Live-Fortschritt (§8.2) und
       Abbrechen (§8.2). Start ohne Argumente (`barge`).
-- [~] **Stufe 6 — Feinschliff (in Arbeit).** Fenstergröße + Zoom persistiert,
-      Library manuell hinzufügen (§8.3), schnelle Verifikation nach Move (§7.3),
-      Cover-Bilder aus dem Steam-Cache (§3.5). Offen: Theme-Schalter, AppImage,
-      Kopier-Ansicht glätten.
+- [x] **Stufe 6 — Feinschliff.** Persistenz (Fenstergröße/Zoom/Limit/Panel/
+      Quelle-Ziel/Theme), Library manuell hinzufügen (§8.3), schnelle
+      Verifikation (§7.3), Cover-Bilder + CDN-Cache (§3.5), Kachel-/Listenansicht,
+      Theme-Schalter (Dunkel/Hell/Kontrast), Recovery in der GUI, Log-/Config-/
+      Jobs-Knöpfe, App-Icon, Distribution (AppImage/Tarball/.deb/.rpm/AUR via CI).
+
+## Installation
+
+Fertige Pakete hängen an den [GitHub-Releases](https://github.com/sbstn-0x2a/barge/releases)
+(gebaut per CI beim Taggen einer Version):
+
+- **AppImage** — `chmod +x barge-*.AppImage && ./barge-*.AppImage`, läuft
+  distributionsübergreifend.
+- **Tarball** (`.tar.gz`) — portables Binary plus Icon/Desktop-Datei.
+- **`.deb`** (Debian/Ubuntu) und **`.rpm`** (Fedora/openSUSE).
+- **AUR** (Arch): `PKGBUILD` unter `packaging/`.
 
 ## Build & Run
 
