@@ -33,9 +33,9 @@ struct Totals {
 }
 
 fn main() {
-    // Sprache aus der gespeicherten Config (falls gesetzt), sonst aus dem
-    // Locale. Die GUI kann sie später per Umschalter ändern.
-    i18n::set_from_code(&config::Config::load().lang);
+    // Die CLI ist immer Englisch (nur ein Fallback). Die GUI überschreibt die
+    // Sprache in BargeApp::new aus der gespeicherten Config.
+    i18n::set_lang(i18n::Lang::En);
 
     let args: Vec<String> = std::env::args().skip(1).collect();
 
@@ -63,8 +63,8 @@ fn main() {
 
 fn run_gui() {
     if let Err(e) = ui::run() {
-        eprintln!("GUI konnte nicht starten: {}", e);
-        eprintln!("Ohne Display? Nutze die CLI — siehe `barge --help`.");
+        eprintln!("GUI failed to start: {}", e);
+        eprintln!("No display? Use the CLI — see `barge --help`.");
         std::process::exit(1);
     }
 }
@@ -94,19 +94,19 @@ fn cmd_list(args: &[String]) {
         for arg in args {
             match steam::discovery::normalize_root(&PathBuf::from(arg)) {
                 Some(root) => libs.push(Library::new(root)),
-                None => eprintln!("Keine Steam-Library: {}", arg),
+                None => eprintln!("Not a Steam library: {}", arg),
             }
         }
         libs
     };
 
     if libraries.is_empty() {
-        eprintln!("Keine Steam-Libraries gefunden.");
-        eprintln!("Standard-Orte geprüft (§3.3): ~/.local/share/Steam, ~/.steam/steam, ...");
+        eprintln!("No Steam libraries found.");
+        eprintln!("Standard locations checked (§3.3): ~/.local/share/Steam, ~/.steam/steam, ...");
         std::process::exit(1);
     }
 
-    println!("barge — Steam-Bibliotheken\n");
+    println!("barge — Steam libraries\n");
 
     let mut totals = Totals::default();
     for (idx, lib) in libraries.iter().enumerate() {
@@ -115,7 +115,7 @@ fn cmd_list(args: &[String]) {
     }
 
     println!(
-        "{} Library/Libraries · {} Spiel(e) · {} Tools/Runtimes.",
+        "{} library/libraries · {} game(s) · {} tools/runtimes.",
         libraries.len(),
         totals.games,
         totals.tools
@@ -132,14 +132,14 @@ fn print_library(idx: usize, lib: &Library, totals: &mut Totals) {
                 0
             };
             format!(
-                "belegt {} / {} ({} %), frei {}",
+                "{} / {} used ({} %), {} free",
                 human_size(used),
                 human_size(total),
                 pct,
                 human_size(avail)
             )
         }
-        None => "Speicherplatz unbekannt".to_string(),
+        None => "disk space unknown".to_string(),
     };
 
     println!("Library {}: {}", idx, lib.path.display());
@@ -162,11 +162,11 @@ fn print_library(idx: usize, lib: &Library, totals: &mut Totals) {
     tools.sort_by(|a, b| b.1.cmp(&a.1));
 
     if real.is_empty() && tools.is_empty() {
-        println!("  (keine installierten Spiele)");
+        println!("  (no games installed)");
     }
 
     if !real.is_empty() {
-        println!("  Spiele (nach Größe):");
+        println!("  Games (by size):");
         for (game, size) in &real {
             totals.games += 1;
             print_row(game, *size);
@@ -174,7 +174,7 @@ fn print_library(idx: usize, lib: &Library, totals: &mut Totals) {
     }
 
     if !tools.is_empty() {
-        println!("  Tools & Runtimes:");
+        println!("  Tools & runtimes:");
         for (game, size) in &tools {
             totals.tools += 1;
             print_row(game, *size);
@@ -182,7 +182,7 @@ fn print_library(idx: usize, lib: &Library, totals: &mut Totals) {
     }
 
     for (path, err) in &errors {
-        eprintln!("  ! Manifest unlesbar: {} ({})", path.display(), err);
+        eprintln!("  ! Manifest unreadable: {} ({})", path.display(), err);
     }
 }
 
@@ -255,37 +255,37 @@ fn cmd_copy(args: &[String]) {
             _ if src.is_none() => src = Some(PathBuf::from(a)),
             _ if dst.is_none() => dst = Some(PathBuf::from(a)),
             other => {
-                eprintln!("Unbekanntes Argument: {}", other);
+                eprintln!("Unknown argument: {}", other);
                 std::process::exit(2);
             }
         }
     }
 
     let (Some(src), Some(dst)) = (src, dst) else {
-        eprintln!("Aufruf: barge copy <QUELLE> <ZIEL> [--limit MB/s | --unlimited]");
+        eprintln!("Usage: barge copy <SRC> <DST> [--limit MB/s | --unlimited]");
         std::process::exit(2);
     };
 
     if !src.exists() {
-        eprintln!("Quelle existiert nicht: {}", src.display());
+        eprintln!("Source does not exist: {}", src.display());
         std::process::exit(2);
     }
     if dst.exists() {
         // §5.5 sinngemäß: nicht überschreiben.
-        eprintln!("Ziel existiert bereits, wird nicht überschrieben: {}", dst.display());
+        eprintln!("Target already exists, not overwriting: {}", dst.display());
         std::process::exit(3);
     }
 
     let total = dir_real_size(&src);
     let limit_label = if limit_mbps == 0 {
-        "unbegrenzt (⚠ ohne Drossel — nur für Vergleichsmessungen)".to_string()
+        "unlimited (no throttle — for comparison measurements only)".to_string()
     } else {
         format!("max. {} MB/s", limit_mbps)
     };
-    println!("barge copy — Kopier-Engine (Stufe 2)");
-    println!("  Quelle : {}", src.display());
-    println!("  Ziel   : {}", dst.display());
-    println!("  Größe  : {} (real, on-disk)", human_size(total));
+    println!("barge copy — copy engine");
+    println!("  Source : {}", src.display());
+    println!("  Target : {}", dst.display());
+    println!("  Size   : {} (real, on-disk)", human_size(total));
     println!("  Limit  : {}", limit_label);
     match mover::copy::same_device(&src, &dst) {
         Ok(true) => println!(
@@ -298,7 +298,7 @@ fn cmd_copy(args: &[String]) {
 
     if let Some(parent) = dst.parent() {
         if let Err(e) = std::fs::create_dir_all(parent) {
-            eprintln!("Zielverzeichnis nicht anlegbar: {}", e);
+            eprintln!("Cannot create target directory: {}", e);
             std::process::exit(1);
         }
     }
@@ -346,7 +346,7 @@ fn cmd_copy(args: &[String]) {
     match copier.copy_tree(&src, &dst) {
         Ok(()) => {}
         Err(e) => {
-            eprintln!("\nFehler beim Kopieren: {}", e);
+            eprintln!("\nCopy error: {}", e);
             std::process::exit(1);
         }
     }
@@ -361,7 +361,7 @@ fn cmd_copy(args: &[String]) {
     eprintln!(); // Fortschrittszeile abschließen
     println!("\n--- Ergebnis ---");
     println!(
-        "  Dateien {}, Verzeichnisse {}, Symlinks {}, Hardlinks {}",
+        "  Files {}, directories {}, symlinks {}, hardlinks {}",
         st.files, st.dirs, st.symlinks, st.hardlinks
     );
     println!(
@@ -369,7 +369,7 @@ fn cmd_copy(args: &[String]) {
         st.cfr_ok, st.cfr_fallback
     );
     println!(
-        "  {} in {:.1} s  →  gemessen {:.1} MB/s",
+        "  {} in {:.1} s  →  measured {:.1} MB/s",
         human_size(st.bytes),
         secs,
         copier.measured_mbps()
@@ -400,7 +400,7 @@ fn cmd_move(args: &[String]) {
             // Nur für Tests: nach N MB hart abbrechen (simuliert kill -9, §12).
             "--crash-after-mb" => crash_after_mb = parse_num(it.next(), "--crash-after-mb"),
             other if other.starts_with("--") => {
-                eprintln!("Unbekannte Option: {}", other);
+                eprintln!("Unknown option: {}", other);
                 std::process::exit(2);
             }
             _ => positional.push(a),
@@ -408,7 +408,7 @@ fn cmd_move(args: &[String]) {
     }
 
     if positional.len() < 3 {
-        eprintln!("Aufruf: barge move <QUELL-LIB> <ZIEL-LIB> <APPID>… [--dry-run] [--limit MB/s] [--keep-shadercache]");
+        eprintln!("Usage: barge move <SRC-LIB> <DST-LIB> <APPID>… [--dry-run] [--limit MB/s] [--keep-shadercache]");
         std::process::exit(2);
     }
     let source = normalize_lib_or_exit(positional[0]);
@@ -421,7 +421,7 @@ fn cmd_move(args: &[String]) {
         let appid: u32 = match raw.parse() {
             Ok(v) => v,
             Err(_) => {
-                eprintln!("AppID muss eine Zahl sein: {}", raw);
+                eprintln!("AppID must be a number: {}", raw);
                 std::process::exit(2);
             }
         };
@@ -429,7 +429,7 @@ fn cmd_move(args: &[String]) {
         let m = match manifest::read(&manifest_path) {
             Ok(m) => m,
             Err(e) => {
-                eprintln!("Spiel {} nicht in Quell-Library: {}", appid, e);
+                eprintln!("Game {} not in source library: {}", appid, e);
                 std::process::exit(2);
             }
         };
@@ -441,7 +441,7 @@ fn cmd_move(args: &[String]) {
         };
         let plan = MovePlan::new(&game, &target, choice);
         if plan.items.is_empty() {
-            eprintln!("AppID {}: nichts zu verschieben (keine Komponenten gefunden).", appid);
+            eprintln!("AppID {}: nothing to move (no components found).", appid);
             std::process::exit(2);
         }
         queue.push((game, plan));
@@ -452,11 +452,11 @@ fn cmd_move(args: &[String]) {
     } else {
         format!("max. {} MB/s", limit_mbps)
     };
-    println!("barge move{}", if dry_run { " — TROCKENLAUF (§8.4, keine Änderung)" } else { "" });
-    println!("  Quelle : {}", source.display());
-    println!("  Ziel   : {}", target.display());
+    println!("barge move{}", if dry_run { " — DRY RUN (§8.4, no change)" } else { "" });
+    println!("  Source : {}", source.display());
+    println!("  Target : {}", target.display());
     println!("  Limit  : {}", limit_label);
-    println!("  Queue  : {} Spiel(e)\n", queue.len());
+    println!("  Queue  : {} game(s)\n", queue.len());
 
     // --- Vorbedingungen je Spiel (§5) und Plan anzeigen.
     let mut all_ok = true;
@@ -472,8 +472,8 @@ fn cmd_move(args: &[String]) {
 
     if dry_run {
         println!(
-            "Trockenlauf abgeschlossen — {}.",
-            if all_ok { "alle Vorbedingungen erfüllt" } else { "es gibt offene Vorbedingungen (siehe ✗)" }
+            "Dry run finished — {}.",
+            if all_ok { "all preconditions met" } else { "there are unmet preconditions (see ✗)" }
         );
         std::process::exit(if all_ok { 0 } else { 2 });
     }
@@ -487,7 +487,7 @@ fn cmd_move(args: &[String]) {
 
         let report = mover::preconditions::check(game, plan);
         if !report.all_passed() {
-            eprintln!("  übersprungen — Vorbedingungen nicht erfüllt:");
+            eprintln!("  skipped — preconditions not met:");
             for c in report.failures() {
                 eprintln!("    ✗ {}: {}", c.name, c.detail);
             }
@@ -500,7 +500,7 @@ fn cmd_move(args: &[String]) {
         done += 1;
     }
 
-    println!("\nFertig: {} von {} Spiel(en) verschoben.", done, queue.len());
+    println!("\nDone: {} of {} game(s) moved.", done, queue.len());
 }
 
 /// Führt einen einzelnen, bereits geprüften Move aus (Journal + Transaktion).
@@ -518,7 +518,7 @@ fn run_single_move(plan: &MovePlan, rate: u64, verify: bool, crash_after_mb: u64
     ) {
         Ok(j) => j,
         Err(e) => {
-            eprintln!("Journal nicht anlegbar: {}", e);
+            eprintln!("Cannot create journal: {}", e);
             return Err(1);
         }
     };
@@ -532,9 +532,9 @@ fn run_single_move(plan: &MovePlan, rate: u64, verify: bool, crash_after_mb: u64
             Ok(())
         }
         Err(e) => {
-            eprintln!("\nFehler: {}", e);
+            eprintln!("\nError: {}", e);
             let _ = journal.set_state(JobState::Failed);
-            eprintln!("Job als FAILED markiert; Quelle unangetastet. Recovery: `barge recover`");
+            eprintln!("Job marked FAILED; source untouched. Recovery: `barge recover`");
             Err(1)
         }
     }
@@ -542,7 +542,7 @@ fn run_single_move(plan: &MovePlan, rate: u64, verify: bool, crash_after_mb: u64
 
 fn print_plan(plan: &MovePlan) {
     println!(
-        "  ▸ {} (AppID {}) — {} über {} Komponente(n):",
+        "  ▸ {} (AppID {}) — {} across {} component(s):",
         plan.name,
         plan.appid,
         human_size(plan.bytes_total),
@@ -550,15 +550,15 @@ fn print_plan(plan: &MovePlan) {
     );
     for item in &plan.items {
         let verb = match item.action {
-            mover::plan::Action::MoveDir | mover::plan::Action::MoveFile => "verschieben",
-            mover::plan::Action::DeleteSource => "löschen (Quelle)",
+            mover::plan::Action::MoveDir | mover::plan::Action::MoveFile => "move",
+            mover::plan::Action::DeleteSource => "delete (source)",
         };
         println!("      {:<12} {}", item.kind.label(), verb);
     }
 }
 
 fn print_report(report: &mover::preconditions::Report) {
-    println!("    Vorbedingungen (§5):");
+    println!("    Preconditions (§5):");
     for c in &report.checks {
         println!("      {} {}: {}", if c.passed { "✓" } else { "✗" }, c.name, c.detail);
     }
@@ -571,65 +571,65 @@ fn cmd_recover(args: &[String]) {
     match args.first().map(String::as_str) {
         None => {
             if open.is_empty() {
-                println!("Keine unvollendeten Move-Jobs.");
+                println!("No unfinished move jobs.");
                 return;
             }
-            println!("Unvollendete Move-Jobs:\n");
+            println!("Unfinished move jobs:\n");
             for j in &open {
                 println!("  ID     : {}", j.id);
-                println!("  Spiel  : {} (AppID {})", j.name, j.appid);
-                println!("  Zustand: {:?}", j.state);
+                println!("  Game   : {} (AppID {})", j.name, j.appid);
+                println!("  State: {:?}", j.state);
                 println!("  {} → {}", j.source_library.display(), j.target_library.display());
-                println!("  Fortschritt: {} / {}", human_size(j.bytes_done), human_size(j.bytes_total));
+                println!("  Progress: {} / {}", human_size(j.bytes_done), human_size(j.bytes_total));
                 let hint = match j.state {
-                    JobState::Committed => "finish  (Ziel vollständig, nur Quell-Bereinigung offen)",
-                    _ => "cleanup (Ziel-.partial verwerfen, Quelle bleibt) ODER resume (fortsetzen)",
+                    JobState::Committed => "finish  (target complete, only source cleanup left)",
+                    _ => "cleanup (discard target .partial, source stays) OR resume",
                 };
                 println!("  → barge recover {} {}\n", hint.split_whitespace().next().unwrap(), j.id);
-                println!("     empfohlen: {}\n", hint);
+                println!("     recommended: {}\n", hint);
             }
         }
         Some(action) => {
             let id = match args.get(1) {
                 Some(id) => id,
                 None => {
-                    eprintln!("Aufruf: barge recover {} <ID>", action);
+                    eprintln!("Usage: barge recover {} <ID>", action);
                     std::process::exit(2);
                 }
             };
             let job = match open.iter().find(|j| &j.id == id) {
                 Some(j) => j.clone(),
                 None => {
-                    eprintln!("Kein Job mit ID {}", id);
+                    eprintln!("No job with ID {}", id);
                     std::process::exit(2);
                 }
             };
             match action {
                 "cleanup" => match mover::execute::cleanup_target_partials(&job) {
-                    Ok(()) => println!("Aufgeräumt: Ziel-.partial entfernt, Quelle intakt. Job {}", id),
-                    Err(e) => { eprintln!("Fehler beim Aufräumen: {}", e); std::process::exit(1); }
+                    Ok(()) => println!("Cleaned up: target .partial removed, source intact. Job {}", id),
+                    Err(e) => { eprintln!("Error while cleaning up: {}", e); std::process::exit(1); }
                 },
                 "finish" => match mover::execute::finish_committed(&job) {
-                    Ok(()) => println!("Abgeschlossen: Quelle bereinigt. Job {}", id),
-                    Err(e) => { eprintln!("Fehler beim Abschließen: {}", e); std::process::exit(1); }
+                    Ok(()) => println!("Finished: source cleaned up. Job {}", id),
+                    Err(e) => { eprintln!("Error while finishing: {}", e); std::process::exit(1); }
                 },
                 "resume" => {
                     let plan = match MovePlan::rebuild_from_source(&job) {
                         Ok(p) => p,
-                        Err(e) => { eprintln!("Resume nicht möglich (Quelle unlesbar?): {}", e); std::process::exit(1); }
+                        Err(e) => { eprintln!("Cannot resume (source unreadable?): {}", e); std::process::exit(1); }
                     };
                     let mut journal = job;
                     let total = plan.bytes_total;
-                    println!("Setze Job {} fort ({})…", id, plan.name);
+                    println!("Resuming job {} ({})…", id, plan.name);
                     let progress = make_progress(total, 0);
                     let cancel = Arc::new(AtomicBool::new(false));
                     match mover::execute::execute(&plan, 250 * 1_000_000, true, true, cancel, &mut journal, progress) {
-                        Ok(st) => { eprintln!(); println!("\n--- Fortsetzung abgeschlossen ---"); print_move_stats(&st); }
-                        Err(e) => { eprintln!("\nFehler: {}", e); std::process::exit(1); }
+                        Ok(st) => { eprintln!(); println!("\n--- Resume finished ---"); print_move_stats(&st); }
+                        Err(e) => { eprintln!("\nError: {}", e); std::process::exit(1); }
                     }
                 }
                 other => {
-                    eprintln!("Unbekannte Aktion: {} (cleanup|resume|finish)", other);
+                    eprintln!("Unknown action: {} (cleanup|resume|finish)", other);
                     std::process::exit(2);
                 }
             }
@@ -666,10 +666,10 @@ fn make_progress(total: u64, crash_bytes: u64) -> impl FnMut(&Stats, f64) {
 
 fn print_move_stats(st: &Stats) {
     println!(
-        "  Dateien {} ({} übersprungen), Verzeichnisse {}, Symlinks {}, Hardlinks {}",
+        "  Files {} ({} skipped), directories {}, symlinks {}, hardlinks {}",
         st.files, st.skipped_files, st.dirs, st.symlinks, st.hardlinks
     );
-    println!("  {} kopiert, {} Löcher erhalten", human_size(st.bytes), st.holes);
+    println!("  {} copied, {} holes preserved", human_size(st.bytes), st.holes);
 }
 
 fn parse_num(v: Option<&String>, flag: &str) -> u64 {
@@ -686,7 +686,7 @@ fn normalize_lib_or_exit(arg: &str) -> PathBuf {
     match steam::discovery::normalize_root(Path::new(arg)) {
         Some(root) => root,
         None => {
-            eprintln!("Keine Steam-Library: {}", arg);
+            eprintln!("Not a Steam library: {}", arg);
             std::process::exit(2);
         }
     }

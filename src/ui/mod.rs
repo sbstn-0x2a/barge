@@ -116,6 +116,7 @@ impl BargeApp {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
         egui_extras::install_image_loaders(&cc.egui_ctx);
         let cfg = crate::config::Config::load();
+        crate::i18n::set_from_code(&cfg.lang);
         cc.egui_ctx.set_zoom_factor(cfg.zoom_factor);
         apply_theme(&cc.egui_ctx, &cfg.theme);
         let load_rx = Some(spawn_load(cc.egui_ctx.clone()));
