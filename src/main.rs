@@ -7,9 +7,12 @@
 
 mod mover;
 mod steam;
+mod ui;
 mod util;
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 use std::time::Instant;
 
 use mover::copy::{Copier, Stats};
@@ -34,8 +37,9 @@ fn main() {
         return;
     }
 
-    // Subcommands. Ohne Subcommand: Library-Listing (Stufe 1).
+    // Ohne Argumente: GUI (§8). Subcommands bleiben als CLI erhalten.
     match args.first().map(String::as_str) {
+        None | Some("gui") => run_gui(),
         Some("copy") => cmd_copy(&args[1..]),
         Some("move") => cmd_move(&args[1..]),
         Some("recover") => cmd_recover(&args[1..]),
@@ -43,10 +47,18 @@ fn main() {
             warn_incomplete_jobs();
             cmd_list(&args[1..]);
         }
-        _ => {
-            warn_incomplete_jobs();
-            cmd_list(&args);
+        Some(other) => {
+            eprintln!("Unbekannter Befehl: {}. Siehe `barge --help`.", other);
+            std::process::exit(2);
         }
+    }
+}
+
+fn run_gui() {
+    if let Err(e) = ui::run() {
+        eprintln!("GUI konnte nicht starten: {}", e);
+        eprintln!("Ohne Display? Nutze die CLI — siehe `barge --help`.");
+        std::process::exit(1);
     }
 }
 
@@ -494,7 +506,8 @@ fn run_single_move(plan: &MovePlan, rate: u64, crash_after_mb: u64) -> Result<()
     };
 
     let progress = make_progress(plan.bytes_total, crash_after_mb.saturating_mul(1_000_000));
-    match mover::execute::execute(plan, rate, false, &mut journal, progress) {
+    let cancel = Arc::new(AtomicBool::new(false));
+    match mover::execute::execute(plan, rate, false, cancel, &mut journal, progress) {
         Ok(st) => {
             eprintln!();
             print_move_stats(&st);
@@ -591,7 +604,8 @@ fn cmd_recover(args: &[String]) {
                     let total = plan.bytes_total;
                     println!("Setze Job {} fort ({})…", id, plan.name);
                     let progress = make_progress(total, 0);
-                    match mover::execute::execute(&plan, 250 * 1_000_000, true, &mut journal, progress) {
+                    let cancel = Arc::new(AtomicBool::new(false));
+                    match mover::execute::execute(&plan, 250 * 1_000_000, true, cancel, &mut journal, progress) {
                         Ok(st) => { eprintln!(); println!("\n--- Fortsetzung abgeschlossen ---"); print_move_stats(&st); }
                         Err(e) => { eprintln!("\nFehler: {}", e); std::process::exit(1); }
                     }
@@ -664,7 +678,8 @@ fn print_usage() {
     println!(
         "barge {} — Move Steam games between libraries, safely and at your own pace\n\n\
          AUFRUF:\n\
-         \x20 barge [list]              alle erkannten Libraries + Spiele auflisten\n\
+         \x20 barge                     grafische Oberfläche starten (Standard)\n\
+         \x20 barge list                alle erkannten Libraries + Spiele auflisten\n\
          \x20 barge list <PFAD>…        bestimmte Library-Roots (oder steamapps/) auflisten\n\
          \x20 barge copy <QUELLE> <ZIEL> [--limit MB/s | --unlimited]\n\
          \x20                           Kopier-Engine standalone (Stufe 2): gedrosselt,\n\

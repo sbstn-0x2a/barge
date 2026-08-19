@@ -18,6 +18,8 @@ use std::io;
 use std::os::unix::fs::{symlink, FileExt, MetadataExt};
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use super::throttle::Throttle;
 
@@ -80,6 +82,8 @@ pub struct Copier<F: FnMut(&Stats, f64)> {
     /// Beim Fortsetzen (§7.2): bereits vorhandene, nach Größe+mtime passende
     /// Zieldateien überspringen statt neu zu kopieren.
     skip_existing: bool,
+    /// Abbruch-Signal (§8.2): wird zwischen Chunks geprüft.
+    cancel: Arc<AtomicBool>,
 }
 
 impl<F: FnMut(&Stats, f64)> Copier<F> {
@@ -91,12 +95,20 @@ impl<F: FnMut(&Stats, f64)> Copier<F> {
             inodes: HashMap::new(),
             progress,
             skip_existing: false,
+            cancel: Arc::new(AtomicBool::new(false)),
         }
     }
 
     /// Aktiviert den Resume-Modus (§7.2): passende Zieldateien überspringen.
     pub fn skip_existing(mut self, yes: bool) -> Self {
         self.skip_existing = yes;
+        self
+    }
+
+    /// Verknüpft ein Abbruch-Signal (§8.2). Wird es gesetzt, bricht ein
+    /// laufender Kopiervorgang zwischen zwei Chunks mit `Interrupted` ab.
+    pub fn cancel(mut self, flag: Arc<AtomicBool>) -> Self {
+        self.cancel = flag;
         self
     }
 
@@ -241,6 +253,9 @@ impl<F: FnMut(&Stats, f64)> Copier<F> {
         let mut buf = Vec::new();
 
         while remaining > 0 {
+            if self.cancel.load(Ordering::Relaxed) {
+                return Err(io::Error::new(io::ErrorKind::Interrupted, "abgebrochen"));
+            }
             let want = std::cmp::min(remaining, CHUNK as u64) as usize;
 
             let done: u64 = if *use_cfr {

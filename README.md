@@ -36,8 +36,12 @@ In Arbeit. Umsetzung in Stufen (siehe `docs/design.md`, §11):
       aus, StateFlags, Ziel registriert, beschreibbar, Freiplatz + 5 %, kein
       Konflikt), Trockenlauf (`--dry-run`, §8.4) und Warteschlange für mehrere
       AppIDs (§14).
-- [ ] Stufe 5 — GUI (eframe/egui)
-- [ ] Stufe 6 — Feinschliff, AppImage
+- [x] **Stufe 5 — GUI (eframe/egui).** Zwei-Panel-Ansicht (§8.1): Quelle mit
+      Auswahl-Checkboxen, Ziel, max.-Rate-Slider, Optionen, Trockenlauf.
+      Verschieben läuft im Worker-Thread mit Live-Fortschritt (§8.2) und
+      Abbrechen (§8.2). Start ohne Argumente (`barge`).
+- [ ] Stufe 6 — Feinschliff (Cover-Bilder, Verifikation, Library manuell
+      hinzufügen, AppImage)
 
 ## Build & Run
 
@@ -45,7 +49,8 @@ Reines Rust, Stufe 1 ist dependency-frei (nur `std` + libc-Syscalls):
 
 ```bash
 cargo build
-cargo run                        # alle erkannten Libraries + Spiele auflisten
+cargo run                        # grafische Oberfläche starten (Standard)
+cargo run -- list                # alle erkannten Libraries + Spiele auflisten (CLI)
 cargo run -- list <PFAD>         # bestimmten Library-Root (oder steamapps/) auflisten
 cargo run -- copy <SRC> <DST>    # Kopier-Engine standalone (Default max. 250 MB/s)
 cargo run -- move <QUELL-LIB> <ZIEL-LIB> <APPID>…  # vollständiger Move mit Journal

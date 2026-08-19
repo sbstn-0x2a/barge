@@ -9,6 +9,8 @@
 use std::fs::{self, File};
 use std::io;
 use std::path::Path;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 
 use crate::mover::copy::{fsync_dir, Copier, Stats};
 use crate::mover::journal::{ComponentState, JobState, Journal};
@@ -23,11 +25,14 @@ pub fn execute<F: FnMut(&Stats, f64)>(
     plan: &MovePlan,
     rate_bytes: u64,
     resume: bool,
+    cancel: Arc<AtomicBool>,
     journal: &mut Journal,
     progress: F,
 ) -> io::Result<Stats> {
     journal.set_state(JobState::Copying)?;
-    let mut copier = Copier::new(rate_bytes, progress).skip_existing(resume);
+    let mut copier = Copier::new(rate_bytes, progress)
+        .skip_existing(resume)
+        .cancel(cancel);
 
     // 2/3) Dir-Komponenten nach .partial kopieren, compatdata-Prefix fixen.
     for item in plan.items.iter().filter(|i| i.action == Action::MoveDir) {

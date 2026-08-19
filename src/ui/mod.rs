@@ -1,0 +1,324 @@
+//! Grafische Oberfläche (§8), eframe/egui im Immediate Mode.
+//!
+//! Zwei-Panel-Ansicht (Quelle/Ziel) nach Norton-/Midnight-Commander-Vorbild,
+//! darunter Einstellungen und der Move-Auslöser. Das Verschieben läuft in einem
+//! Worker-Thread ([`job`]); die eigentliche Logik ist die aus den Stufen 1–4.
+
+mod job;
+mod panels;
+mod progress;
+mod settings;
+
+use std::collections::HashSet;
+use std::path::PathBuf;
+use std::sync::mpsc::Receiver;
+
+use eframe::egui;
+
+use crate::mover::plan::MovePlan;
+use crate::mover::preconditions;
+use crate::steam::game::Game;
+
+/// Eine Library samt geladener Spiele fürs Rendering.
+pub struct LibraryView {
+    pub path: PathBuf,
+    pub label: String,
+    pub disk: Option<(u64, u64)>, // (total, avail)
+    pub games: Vec<GameRow>,
+}
+
+pub struct GameRow {
+    pub appid: u32,
+    pub name: String,
+    pub size: u64,
+    pub blocked_reason: Option<String>,
+    pub is_tool: bool,
+    pub game: Game,
+}
+
+enum Job {
+    Idle,
+    Running(job::RunningJob),
+    Finished(String),
+}
+
+pub struct BargeApp {
+    load_rx: Option<Receiver<Result<Vec<LibraryView>, String>>>,
+    load_error: Option<String>,
+    libraries: Vec<LibraryView>,
+    source_idx: usize,
+    target_idx: usize,
+    selected: HashSet<u32>,
+    limit_mbps: u64,
+    delete_shadercache: bool,
+    dry_run: bool,
+    job: Job,
+    incomplete_jobs: usize,
+}
+
+impl BargeApp {
+    fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        let load_rx = Some(spawn_load(cc.egui_ctx.clone()));
+        BargeApp {
+            load_rx,
+            load_error: None,
+            libraries: Vec::new(),
+            source_idx: 0,
+            target_idx: 0,
+            selected: HashSet::new(),
+            limit_mbps: 250,
+            delete_shadercache: true,
+            dry_run: false,
+            job: Job::Idle,
+            incomplete_jobs: crate::mover::journal::Journal::scan_incomplete().len(),
+        }
+    }
+
+    fn selection_stats(&self) -> (usize, u64) {
+        let Some(src) = self.libraries.get(self.source_idx) else {
+            return (0, 0);
+        };
+        let mut n = 0;
+        let mut bytes = 0;
+        for row in &src.games {
+            if self.selected.contains(&row.appid) {
+                n += 1;
+                bytes += row.size;
+            }
+        }
+        (n, bytes)
+    }
+
+    /// Baut die (Spiel, Plan)-Warteschlange aus der aktuellen Auswahl.
+    fn build_queue(&self) -> Vec<(Game, MovePlan)> {
+        let Some(src) = self.libraries.get(self.source_idx) else {
+            return Vec::new();
+        };
+        let target = self.libraries[self.target_idx].path.clone();
+        src.games
+            .iter()
+            .filter(|r| self.selected.contains(&r.appid) && r.blocked_reason.is_none())
+            .map(|r| {
+                let plan = MovePlan::new(&r.game, &target, self.delete_shadercache);
+                (r.game.clone(), plan)
+            })
+            .collect()
+    }
+
+    fn reload(&mut self, ctx: &egui::Context) {
+        self.selected.clear();
+        self.job = Job::Idle;
+        self.load_error = None;
+        self.incomplete_jobs = crate::mover::journal::Journal::scan_incomplete().len();
+        self.load_rx = Some(spawn_load(ctx.clone()));
+    }
+}
+
+impl eframe::App for BargeApp {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // --- Hintergrund-Laden abholen
+        if let Some(rx) = &self.load_rx {
+            if let Ok(res) = rx.try_recv() {
+                match res {
+                    Ok(views) => {
+                        self.libraries = views;
+                        self.source_idx = 0;
+                        self.target_idx = if self.libraries.len() > 1 { 1 } else { 0 };
+                    }
+                    Err(e) => self.load_error = Some(e),
+                }
+                self.load_rx = None;
+            }
+        }
+
+        // --- laufenden Job pollen
+        let mut finished_summary = None;
+        if let Job::Running(r) = &mut self.job {
+            r.poll();
+            if r.finished {
+                finished_summary = Some(r.summary());
+            }
+        }
+        if let Some(summary) = finished_summary {
+            self.job = Job::Finished(summary);
+        }
+
+        let loading = self.load_rx.is_some();
+
+        egui::TopBottomPanel::top("header").show(ctx, |ui| {
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                ui.heading("barge");
+                ui.label("— Steam-Spiele sicher und gedrosselt verschieben");
+            });
+            if self.incomplete_jobs > 0 {
+                ui.colored_label(
+                    egui::Color32::from_rgb(0xd0, 0x90, 0x30),
+                    format!(
+                        "⚠ {} unvollendete(r) Move-Job(s) — im Terminal `barge recover`",
+                        self.incomplete_jobs
+                    ),
+                );
+            }
+            ui.add_space(4.0);
+        });
+
+        if loading {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                ui.vertical_centered(|ui| {
+                    ui.add_space(80.0);
+                    ui.spinner();
+                    ui.label("Bibliotheken werden geladen (Größen werden berechnet)…");
+                });
+            });
+            return;
+        }
+        if let Some(err) = self.load_error.clone() {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                ui.colored_label(egui::Color32::LIGHT_RED, format!("Fehler: {}", err));
+            });
+            return;
+        }
+
+        let (sel_count, sel_bytes) = self.selection_stats();
+        let mut start_move = false;
+        let mut do_reload = false;
+
+        egui::TopBottomPanel::bottom("actions").show(ctx, |ui| {
+            ui.add_space(6.0);
+            match &mut self.job {
+                Job::Running(r) => {
+                    progress::view(ui, r);
+                }
+                Job::Finished(msg) => {
+                    ui.label("Ergebnis:");
+                    egui::ScrollArea::vertical().max_height(140.0).show(ui, |ui| {
+                        ui.monospace(msg.as_str());
+                    });
+                    if ui.button("Zurück zur Auswahl").clicked() {
+                        do_reload = true;
+                    }
+                }
+                Job::Idle => {
+                    settings::bar(
+                        ui,
+                        &mut self.limit_mbps,
+                        &mut self.delete_shadercache,
+                        &mut self.dry_run,
+                        sel_count,
+                        sel_bytes,
+                    );
+                    let same = self.source_idx == self.target_idx;
+                    let can_go = sel_count > 0 && !same;
+                    ui.horizontal(|ui| {
+                        let label = if self.dry_run { "Trockenlauf ▶" } else { "Verschieben →" };
+                        if ui.add_enabled(can_go, egui::Button::new(label)).clicked() {
+                            start_move = true;
+                        }
+                        if same {
+                            ui.colored_label(egui::Color32::LIGHT_RED, "Quelle und Ziel sind identisch");
+                        } else if sel_count == 0 {
+                            ui.label("keine Spiele ausgewählt");
+                        }
+                    });
+                }
+            }
+            ui.add_space(6.0);
+        });
+
+        egui::SidePanel::left("source")
+            .resizable(true)
+            .default_width(480.0)
+            .show(ctx, |ui| {
+                panels::source_panel(ui, &self.libraries, &mut self.source_idx, &mut self.selected);
+            });
+
+        egui::CentralPanel::default().show(ctx, |ui| {
+            panels::target_panel(ui, &self.libraries, &mut self.target_idx, self.source_idx);
+        });
+
+        // --- Aktionen nach dem Rendern ausführen (Borrow-Konflikte vermeiden)
+        if start_move {
+            let queue = self.build_queue();
+            if self.dry_run {
+                self.job = Job::Finished(dry_run_report(&queue));
+            } else {
+                let rate = self.limit_mbps.saturating_mul(1_000_000);
+                self.job = Job::Running(job::start(queue, rate, ctx.clone()));
+            }
+        }
+        if do_reload {
+            self.reload(ctx);
+        }
+    }
+}
+
+/// Trockenlauf (§8.4): Vorbedingungen prüfen und als Textbericht ausgeben.
+fn dry_run_report(queue: &[(Game, MovePlan)]) -> String {
+    use std::fmt::Write;
+    let mut s = String::new();
+    let _ = writeln!(s, "TROCKENLAUF — keine Datei wird angefasst (§8.4)\n");
+    for (game, plan) in queue {
+        let _ = writeln!(
+            s,
+            "▸ {} (AppID {}) — {} über {} Komponente(n)",
+            plan.name,
+            plan.appid,
+            crate::util::human_size(plan.bytes_total),
+            plan.items.len()
+        );
+        let report = preconditions::check(game, plan);
+        for c in &report.checks {
+            let _ = writeln!(s, "   {} {}: {}", if c.passed { "✓" } else { "✗" }, c.name, c.detail);
+        }
+        s.push('\n');
+    }
+    s
+}
+
+fn spawn_load(ctx: egui::Context) -> Receiver<Result<Vec<LibraryView>, String>> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut views = Vec::new();
+        for lib in crate::steam::discovery::discover() {
+            let disk = lib.disk_space();
+            let (games, _errors) = lib.games();
+            let mut rows: Vec<GameRow> = games
+                .into_iter()
+                .map(|g| {
+                    let size = g.moved_size();
+                    GameRow {
+                        appid: g.manifest.appid,
+                        name: g.manifest.name.clone(),
+                        size,
+                        blocked_reason: g.manifest.blocked_reason(),
+                        is_tool: g.manifest.is_tool(),
+                        game: g,
+                    }
+                })
+                .collect();
+            rows.sort_by(|a, b| b.size.cmp(&a.size));
+            views.push(LibraryView {
+                label: lib.path.display().to_string(),
+                path: lib.path.clone(),
+                disk,
+                games: rows,
+            });
+        }
+        let _ = tx.send(Ok(views));
+        ctx.request_repaint();
+    });
+    rx
+}
+
+/// Startet die grafische Oberfläche (§8). Blockiert bis das Fenster schließt.
+pub fn run() -> eframe::Result<()> {
+    let options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([980.0, 660.0])
+            .with_min_inner_size([720.0, 480.0])
+            .with_title("barge"),
+        ..Default::default()
+    };
+    eframe::run_native("barge", options, Box::new(|cc| Ok(Box::new(BargeApp::new(cc)))))
+}
