@@ -77,6 +77,78 @@ fn cover_cell(ui: &mut egui::Ui, cover: &Option<String>) {
     }
 }
 
+/// Kachel-Ansicht (§8): Cover-Grid. `selected = Some(..)` macht die Kacheln
+/// klickbar (Quelle); `None` = schreibgeschützte Vorschau (Ziel).
+fn game_grid(ui: &mut egui::Ui, id: &str, games: &[GameRow], mut selected: Option<&mut HashSet<u32>>) {
+    const COVER_W: f32 = 104.0;
+    const COVER_H: f32 = 156.0;
+    const CELL_W: f32 = 116.0;
+
+    egui::ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .id_salt(id)
+        .show(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                for row in games {
+                    let is_sel = selected.as_ref().map_or(false, |s| s.contains(&row.appid));
+                    let inner = ui.scope(|ui| {
+                        ui.set_width(CELL_W);
+                        let fill = if is_sel {
+                            ui.visuals().selection.bg_fill
+                        } else {
+                            egui::Color32::TRANSPARENT
+                        };
+                        egui::Frame::none()
+                            .fill(fill)
+                            .inner_margin(4.0)
+                            .rounding(4.0)
+                            .show(ui, |ui| {
+                                ui.vertical_centered(|ui| {
+                                    match &row.cover {
+                                        Some(uri) => {
+                                            ui.add(
+                                                egui::Image::from_uri(uri.clone())
+                                                    .fit_to_exact_size(egui::vec2(COVER_W, COVER_H)),
+                                            );
+                                        }
+                                        None => {
+                                            let (rect, _) = ui.allocate_exact_size(
+                                                egui::vec2(COVER_W, COVER_H),
+                                                egui::Sense::hover(),
+                                            );
+                                            ui.painter().rect_filled(
+                                                rect,
+                                                4.0,
+                                                ui.visuals().extreme_bg_color,
+                                            );
+                                        }
+                                    }
+                                    ui.add_sized(
+                                        [COVER_W, 30.0],
+                                        egui::Label::new(egui::RichText::new(&row.name).small())
+                                            .truncate(),
+                                    );
+                                });
+                            });
+                    });
+
+                    if let Some(sel) = selected.as_deref_mut() {
+                        if row.blocked_reason.is_none() {
+                            let resp = inner.response.interact(egui::Sense::click());
+                            if resp.clicked() {
+                                if is_sel {
+                                    sel.remove(&row.appid);
+                                } else {
+                                    sel.insert(row.appid);
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        });
+}
+
 /// Zelle einer Komponenten-Spalte: Checkbox falls Komponente vorhanden, sonst
 /// ein dezenter Strich.
 fn comp_cell(ui: &mut egui::Ui, active: bool, val: &mut bool) {
@@ -113,11 +185,13 @@ fn toggle_all(
 
 /// Linkes Panel: Library-Auswahl + Spieltabelle mit Auswahl- und
 /// Komponenten-Spalten.
+#[allow(clippy::too_many_arguments)]
 pub fn source_panel(
     ui: &mut egui::Ui,
     libraries: &[LibraryView],
     source_idx: &mut usize,
     target_idx: usize,
+    grid: bool,
     selected: &mut HashSet<u32>,
     comp_choice: &mut HashMap<u32, ComponentChoice>,
 ) {
@@ -142,8 +216,17 @@ pub fn source_panel(
         if ui.small_button("Keine").clicked() {
             selected.clear();
         }
-        ui.weak("· Spaltenkopf schaltet die Auswahl um");
+        ui.weak(if grid {
+            "· Kachel anklicken zum Auswählen"
+        } else {
+            "· Spaltenkopf schaltet die Auswahl um"
+        });
     });
+
+    if grid {
+        game_grid(ui, "grid_src", &lib.games, Some(selected));
+        return;
+    }
 
     // Kopfklick nur vormerken (die Body-Closure hält die &mut-Borrows auf
     // selected/comp_choice — der Header darf sie nicht gleichzeitig anfassen).
@@ -266,6 +349,7 @@ pub fn target_panel(
     libraries: &[LibraryView],
     target_idx: &mut usize,
     source_idx: usize,
+    grid: bool,
 ) {
     ui.heading("Ziel");
     if libraries.is_empty() {
@@ -286,6 +370,11 @@ pub fn target_panel(
             ui.weak("Vorschau — bereits im Ziel installierte Spiele");
         }
     });
+
+    if grid {
+        game_grid(ui, "grid_dst", &lib.games, None);
+        return;
+    }
 
     TableBuilder::new(ui)
         .striped(true)

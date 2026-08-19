@@ -62,6 +62,8 @@ pub struct BargeApp {
     limit_mbps: u64,
     dry_run: bool,
     verify: bool,
+    /// Kachel- statt Listenansicht (persistiert).
+    grid_view: bool,
     job: Job,
     incomplete_jobs: usize,
     /// Quelle/Ziel nur beim ersten Laden vorbelegen, danach die Wahl des
@@ -111,6 +113,7 @@ impl BargeApp {
             limit_mbps: cfg.limit_mbps,
             dry_run: false,
             verify: true,
+            grid_view: cfg.grid_view,
             job: Job::Idle,
             incomplete_jobs: crate::mover::journal::Journal::scan_incomplete().len(),
             initialized: false,
@@ -136,6 +139,7 @@ impl BargeApp {
         cfg.window_h = self.window_size.1;
         cfg.panel_w = self.panel_w;
         cfg.limit_mbps = self.limit_mbps;
+        cfg.grid_view = self.grid_view;
         // Quelle/Ziel nur überschreiben, wenn die Libraries geladen sind.
         if let Some(l) = self.libraries.get(self.source_idx) {
             cfg.source_lib = l.path.display().to_string();
@@ -339,6 +343,16 @@ impl eframe::App for BargeApp {
             ui.horizontal(|ui| {
                 ui.heading("barge");
                 ui.label("— Steam-Spiele sicher und gedrosselt verschieben");
+                ui.separator();
+                // Ansicht Liste/Kacheln.
+                if ui.selectable_label(!self.grid_view, "Liste").clicked() && self.grid_view {
+                    self.grid_view = false;
+                    self.dirty = true;
+                }
+                if ui.selectable_label(self.grid_view, "Kacheln").clicked() && !self.grid_view {
+                    self.grid_view = true;
+                    self.dirty = true;
+                }
                 // Zoom-Regler rechts (persistiert).
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.button("A +").on_hover_text("Schrift größer").clicked() {
@@ -465,6 +479,7 @@ impl eframe::App for BargeApp {
                     &self.libraries,
                     &mut self.source_idx,
                     self.target_idx,
+                    self.grid_view,
                     &mut self.selected,
                     &mut self.comp_choice,
                 );
@@ -477,7 +492,7 @@ impl eframe::App for BargeApp {
         }
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            panels::target_panel(ui, &self.libraries, &mut self.target_idx, self.source_idx);
+            panels::target_panel(ui, &self.libraries, &mut self.target_idx, self.source_idx, self.grid_view);
         });
 
         // --- Ergebnis-Fenster nach Abschluss eines Jobs (kopierbar + OK).
