@@ -45,7 +45,8 @@ pub struct ComponentChoice {
 
 impl Default for ComponentChoice {
     fn default() -> Self {
-        ComponentChoice { compatdata: true, workshop: true, move_shadercache: false }
+        // Alle Zusatzkomponenten standardmäßig mitnehmen.
+        ComponentChoice { compatdata: true, workshop: true, move_shadercache: true }
     }
 }
 

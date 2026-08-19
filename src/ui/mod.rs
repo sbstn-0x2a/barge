@@ -221,12 +221,15 @@ impl eframe::App for BargeApp {
                     ui.label("Move abgeschlossen — siehe Ergebnis-Fenster.");
                 }
                 Job::Idle => {
-                    settings::bar(ui, &mut self.limit_mbps, &mut self.dry_run, &summary);
-                    let same = self.source_idx == self.target_idx;
-                    let can_go = summary.count > 0 && !same;
-                    ui.horizontal(|ui| {
-                        let label = if self.dry_run { "Trockenlauf ▶" } else { "Verschieben →" };
-                        if ui.add_enabled(can_go, egui::Button::new(label)).clicked() {
+                    ui.vertical_centered(|ui| {
+                        settings::bar(ui, &mut self.limit_mbps, &mut self.dry_run, &summary);
+                        ui.add_space(8.0);
+                        let same = self.source_idx == self.target_idx;
+                        let can_go = summary.count > 0 && !same;
+                        let label = if self.dry_run { "Trockenlauf  ▶" } else { "Verschieben  →" };
+                        let btn = egui::Button::new(egui::RichText::new(label).size(18.0))
+                            .min_size(egui::vec2(260.0, 46.0));
+                        if ui.add_enabled(can_go, btn).clicked() {
                             start_move = true;
                         }
                         if same {

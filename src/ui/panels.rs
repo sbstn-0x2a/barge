@@ -4,10 +4,19 @@
 use std::collections::{HashMap, HashSet};
 
 use eframe::egui;
+use egui_extras::{Column, TableBuilder};
 
 use super::{GameRow, LibraryView};
 use crate::mover::plan::ComponentChoice;
 use crate::util::human_size;
+
+/// Welche Komponenten-Spalte per Kopfklick umgeschaltet werden soll.
+#[derive(Clone, Copy)]
+enum ToggleCol {
+    Compat,
+    Workshop,
+    Shader,
+}
 
 fn library_combo(ui: &mut egui::Ui, id: &str, libraries: &[LibraryView], idx: &mut usize) {
     let current = libraries.get(*idx).map(|l| l.label.as_str()).unwrap_or("—");
@@ -101,52 +110,67 @@ pub fn source_panel(
         if ui.small_button("Keine").clicked() {
             selected.clear();
         }
-        ui.weak("· Komponenten je Spiel abwählbar, Spaltenkopf schaltet Auswahl um");
+        ui.weak("· Spaltenkopf schaltet die Auswahl um");
     });
-    ui.separator();
+    ui.add_space(4.0);
 
-    egui::ScrollArea::vertical()
-        .auto_shrink([false, false])
-        .show(ui, |ui| {
-            egui::Grid::new("games_grid")
-                .striped(true)
-                .num_columns(6)
-                .spacing([10.0, 4.0])
-                .show(ui, |ui| {
-                    // --- Kopfzeile
-                    ui.label("");
-                    ui.strong("Spiel");
-                    ui.strong("Größe");
-                    if ui
-                        .button("compat")
-                        .on_hover_text("compatdata (Savegames + Prefix). An = mitnehmen, aus = in Quelle belassen. Klick: für alle Ausgewählten umschalten")
-                        .clicked()
-                    {
-                        toggle_all(&lib.games, selected, comp_choice,
-                            |r| r.has_compatdata, |c| c.compatdata, |c, v| c.compatdata = v);
-                    }
-                    if ui
-                        .button("workshop")
-                        .on_hover_text("Workshop-Mods. An = mitnehmen, aus = belassen. Klick: für alle Ausgewählten umschalten")
-                        .clicked()
-                    {
-                        toggle_all(&lib.games, selected, comp_choice,
-                            |r| r.has_workshop, |c| c.workshop, |c, v| c.workshop = v);
-                    }
-                    if ui
-                        .button("shader")
-                        .on_hover_text("shadercache (wird neu erzeugt). An = mitnehmen, aus = löschen. Standard: aus. Klick: für alle Ausgewählten umschalten")
-                        .clicked()
-                    {
-                        toggle_all(&lib.games, selected, comp_choice,
-                            |r| r.has_shadercache, |c| c.move_shadercache, |c, v| c.move_shadercache = v);
-                    }
-                    ui.end_row();
+    // Kopfklick nur vormerken (die Body-Closure hält die &mut-Borrows auf
+    // selected/comp_choice — der Header darf sie nicht gleichzeitig anfassen).
+    let mut toggle: Option<ToggleCol> = None;
 
-                    // --- Datenzeilen
-                    for row in &lib.games {
-                        let enabled = row.blocked_reason.is_none();
+    TableBuilder::new(ui)
+        .striped(true)
+        .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+        .column(Column::auto()) // Auswahl
+        .column(Column::remainder().at_least(120.0)) // Spiel (skaliert mit)
+        .column(Column::auto()) // Größe
+        .column(Column::auto()) // compat
+        .column(Column::auto()) // workshop
+        .column(Column::auto()) // shader
+        .header(24.0, |mut header| {
+            header.col(|ui| {
+                ui.strong("✓");
+            });
+            header.col(|ui| {
+                ui.strong("Spiel");
+            });
+            header.col(|ui| {
+                ui.strong("Größe");
+            });
+            header.col(|ui| {
+                if ui
+                    .button("compat")
+                    .on_hover_text("compatdata (Savegames + Prefix). An = mitnehmen, aus = in Quelle belassen. Klick: für alle Ausgewählten umschalten")
+                    .clicked()
+                {
+                    toggle = Some(ToggleCol::Compat);
+                }
+            });
+            header.col(|ui| {
+                if ui
+                    .button("workshop")
+                    .on_hover_text("Workshop-Mods. An = mitnehmen, aus = belassen. Klick: für alle Ausgewählten umschalten")
+                    .clicked()
+                {
+                    toggle = Some(ToggleCol::Workshop);
+                }
+            });
+            header.col(|ui| {
+                if ui
+                    .button("shader")
+                    .on_hover_text("shadercache (wird neu erzeugt). An = mitnehmen, aus = löschen. Klick: für alle Ausgewählten umschalten")
+                    .clicked()
+                {
+                    toggle = Some(ToggleCol::Shader);
+                }
+            });
+        })
+        .body(|mut body| {
+            for row in &lib.games {
+                body.row(20.0, |mut tr| {
+                    let enabled = row.blocked_reason.is_none();
 
+                    tr.col(|ui| {
                         let mut sel = selected.contains(&row.appid);
                         if ui
                             .add_enabled(enabled, egui::Checkbox::new(&mut sel, ""))
@@ -158,27 +182,37 @@ pub fn source_panel(
                                 selected.remove(&row.appid);
                             }
                         }
-
-                        match &row.blocked_reason {
-                            Some(reason) => {
-                                ui.add(egui::Label::new(egui::RichText::new(&row.name).weak()))
-                                    .on_hover_text(reason);
-                            }
-                            None => {
-                                ui.label(&row.name);
-                            }
+                    });
+                    tr.col(|ui| match &row.blocked_reason {
+                        Some(reason) => {
+                            ui.add(egui::Label::new(egui::RichText::new(&row.name).weak()).truncate())
+                                .on_hover_text(reason);
                         }
-
+                        None => {
+                            ui.add(egui::Label::new(&row.name).truncate());
+                        }
+                    });
+                    tr.col(|ui| {
                         ui.monospace(human_size(row.size));
-
-                        let choice = comp_choice.entry(row.appid).or_default();
-                        comp_cell(ui, enabled && row.has_compatdata, &mut choice.compatdata);
-                        comp_cell(ui, enabled && row.has_workshop, &mut choice.workshop);
-                        comp_cell(ui, enabled && row.has_shadercache, &mut choice.move_shadercache);
-                        ui.end_row();
-                    }
+                    });
+                    let choice = comp_choice.entry(row.appid).or_default();
+                    tr.col(|ui| comp_cell(ui, enabled && row.has_compatdata, &mut choice.compatdata));
+                    tr.col(|ui| comp_cell(ui, enabled && row.has_workshop, &mut choice.workshop));
+                    tr.col(|ui| comp_cell(ui, enabled && row.has_shadercache, &mut choice.move_shadercache));
                 });
+            }
         });
+
+    // Kopfklick jetzt anwenden (Borrows der Tabelle sind freigegeben).
+    match toggle {
+        Some(ToggleCol::Compat) => toggle_all(&lib.games, selected, comp_choice,
+            |r| r.has_compatdata, |c| c.compatdata, |c, v| c.compatdata = v),
+        Some(ToggleCol::Workshop) => toggle_all(&lib.games, selected, comp_choice,
+            |r| r.has_workshop, |c| c.workshop, |c, v| c.workshop = v),
+        Some(ToggleCol::Shader) => toggle_all(&lib.games, selected, comp_choice,
+            |r| r.has_shadercache, |c| c.move_shadercache, |c, v| c.move_shadercache = v),
+        None => {}
+    }
 }
 
 /// Rechtes Panel: Ziel-Library + (schreibgeschützte) Spieleliste.
