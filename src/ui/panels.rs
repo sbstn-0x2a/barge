@@ -160,13 +160,15 @@ fn game_grid(ui: &mut egui::Ui, id: &str, games: &[GameRow], mut selected: Optio
 }
 
 /// Zelle einer Komponenten-Spalte: Checkbox falls Komponente vorhanden, sonst
-/// ein dezenter Strich.
+/// ein dezenter Strich — mittig in der Spalte.
 fn comp_cell(ui: &mut egui::Ui, active: bool, val: &mut bool) {
-    if active {
-        ui.checkbox(val, "");
-    } else {
-        ui.weak("–");
-    }
+    ui.vertical_centered(|ui| {
+        if active {
+            ui.checkbox(val, "");
+        } else {
+            ui.weak("–");
+        }
+    });
 }
 
 /// Schaltet eine Komponenten-Spalte für alle ausgewählten Spiele (mit dieser
@@ -244,6 +246,7 @@ pub fn source_panel(
 
     TableBuilder::new(ui)
         .striped(true)
+        .id_salt("source_table")
         .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
         .column(Column::exact(30.0)) // Cover
         .column(Column::auto()) // Auswahl
@@ -266,31 +269,37 @@ pub fn source_panel(
                 ui.strong("Größe");
             });
             header.col(|ui| {
-                if ui
-                    .button("compat")
-                    .on_hover_text("compatdata (Savegames + Prefix). An = mitnehmen, aus = in Quelle belassen. Klick: für alle Ausgewählten umschalten")
-                    .clicked()
-                {
-                    toggle = Some(ToggleCol::Compat);
-                }
+                ui.vertical_centered(|ui| {
+                    if ui
+                        .button("compat")
+                        .on_hover_text("compatdata (Savegames + Prefix). An = mitnehmen, aus = in Quelle belassen. Klick: für alle Ausgewählten umschalten")
+                        .clicked()
+                    {
+                        toggle = Some(ToggleCol::Compat);
+                    }
+                });
             });
             header.col(|ui| {
-                if ui
-                    .button("workshop")
-                    .on_hover_text("Workshop-Mods. An = mitnehmen, aus = belassen. Klick: für alle Ausgewählten umschalten")
-                    .clicked()
-                {
-                    toggle = Some(ToggleCol::Workshop);
-                }
+                ui.vertical_centered(|ui| {
+                    if ui
+                        .button("workshop")
+                        .on_hover_text("Workshop-Mods. An = mitnehmen, aus = belassen. Klick: für alle Ausgewählten umschalten")
+                        .clicked()
+                    {
+                        toggle = Some(ToggleCol::Workshop);
+                    }
+                });
             });
             header.col(|ui| {
-                if ui
-                    .button("shader")
-                    .on_hover_text("shadercache (wird neu erzeugt). An = mitnehmen, aus = löschen. Klick: für alle Ausgewählten umschalten")
-                    .clicked()
-                {
-                    toggle = Some(ToggleCol::Shader);
-                }
+                ui.vertical_centered(|ui| {
+                    if ui
+                        .button("shader")
+                        .on_hover_text("shadercache (wird neu erzeugt). An = mitnehmen, aus = löschen. Klick: für alle Ausgewählten umschalten")
+                        .clicked()
+                    {
+                        toggle = Some(ToggleCol::Shader);
+                    }
+                });
             });
         })
         .body(|mut body| {

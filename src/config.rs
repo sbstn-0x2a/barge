@@ -22,6 +22,8 @@ pub struct Config {
     pub limit_mbps: u64,
     /// Kachel-Ansicht (Cover-Grid) statt Liste.
     pub grid_view: bool,
+    /// Farbschema: "dark" | "light" | "contrast".
+    pub theme: String,
     /// Zuletzt gewählte Quell-/Ziel-Library (kanonischer Pfad). Beim Start wird
     /// per Pfad zugeordnet; fehlt die Library, gilt der Default.
     pub source_lib: String,
@@ -41,6 +43,7 @@ impl Default for Config {
             divider_centered: true,
             limit_mbps: 250,
             grid_view: false,
+            theme: "dark".to_string(),
             source_lib: String::new(),
             target_lib: String::new(),
             extra_libraries: Vec::new(),

@@ -64,6 +64,8 @@ pub struct BargeApp {
     verify: bool,
     /// Kachel- statt Listenansicht (persistiert).
     grid_view: bool,
+    /// Farbschema ("dark" | "light" | "contrast"), persistiert.
+    theme: String,
     job: Job,
     incomplete_jobs: usize,
     /// Quelle/Ziel nur beim ersten Laden vorbelegen, danach die Wahl des
@@ -103,6 +105,7 @@ impl BargeApp {
         egui_extras::install_image_loaders(&cc.egui_ctx);
         let cfg = crate::config::Config::load();
         cc.egui_ctx.set_zoom_factor(cfg.zoom_factor);
+        apply_theme(&cc.egui_ctx, &cfg.theme);
         let load_rx = Some(spawn_load(cc.egui_ctx.clone()));
         BargeApp {
             load_rx,
@@ -116,6 +119,7 @@ impl BargeApp {
             dry_run: false,
             verify: true,
             grid_view: cfg.grid_view,
+            theme: cfg.theme,
             job: Job::Idle,
             incomplete_jobs: crate::mover::journal::Journal::scan_incomplete().len(),
             initialized: false,
@@ -144,6 +148,7 @@ impl BargeApp {
         cfg.divider_centered = self.panel_centered;
         cfg.limit_mbps = self.limit_mbps;
         cfg.grid_view = self.grid_view;
+        cfg.theme = self.theme.clone();
         // Quelle/Ziel nur überschreiben, wenn die Libraries geladen sind.
         if let Some(l) = self.libraries.get(self.source_idx) {
             cfg.source_lib = l.path.display().to_string();
@@ -341,6 +346,7 @@ impl eframe::App for BargeApp {
         let loading = self.load_rx.is_some();
 
         let mut new_zoom: Option<f32> = None;
+        let mut new_theme: Option<String> = None;
         let mut open_dialog = false;
         egui::TopBottomPanel::top("header").show(ctx, |ui| {
             ui.add_space(4.0);
@@ -367,6 +373,25 @@ impl eframe::App for BargeApp {
                         new_zoom = Some(self.zoom_factor - 0.1);
                     }
                     ui.label("Schrift:");
+                    ui.separator();
+                    // Farbschema.
+                    let theme_label = match self.theme.as_str() {
+                        "light" => "Hell",
+                        "contrast" => "Kontrast",
+                        _ => "Dunkel",
+                    };
+                    egui::ComboBox::from_id_salt("theme")
+                        .selected_text(theme_label)
+                        .show_ui(ui, |ui| {
+                            for (val, label) in
+                                [("dark", "Dunkel"), ("light", "Hell"), ("contrast", "Kontrast")]
+                            {
+                                if ui.selectable_label(self.theme == val, label).clicked() {
+                                    new_theme = Some(val.to_string());
+                                }
+                            }
+                        });
+                    ui.label("Thema:");
                 });
             });
             // Optionszeile zentriert direkt unter dem Titel (§8.1).
@@ -386,6 +411,11 @@ impl eframe::App for BargeApp {
         });
         if let Some(z) = new_zoom {
             self.set_zoom(ctx, z);
+        }
+        if let Some(t) = new_theme {
+            self.theme = t;
+            apply_theme(ctx, &self.theme);
+            self.dirty = true;
         }
         if open_dialog {
             self.open_add_library_dialog();
@@ -786,6 +816,30 @@ fn spawn_load(ctx: egui::Context) -> Receiver<Result<Vec<LibraryView>, String>> 
         ctx.request_repaint();
     });
     rx
+}
+
+/// Wendet ein Farbschema an (§Stufe 6): dunkel, hell oder kontrastreich.
+fn apply_theme(ctx: &egui::Context, theme: &str) {
+    let visuals = match theme {
+        "light" => egui::Visuals::light(),
+        "contrast" => contrast_visuals(),
+        _ => egui::Visuals::dark(),
+    };
+    ctx.set_visuals(visuals);
+}
+
+/// Kontrastreiches Dunkel-Schema (fast schwarzer Hintergrund, helle Schrift).
+fn contrast_visuals() -> egui::Visuals {
+    let mut v = egui::Visuals::dark();
+    v.override_text_color = Some(egui::Color32::from_gray(245));
+    v.panel_fill = egui::Color32::from_gray(8);
+    v.window_fill = egui::Color32::from_gray(8);
+    v.extreme_bg_color = egui::Color32::BLACK;
+    v.faint_bg_color = egui::Color32::from_gray(28);
+    v.widgets.noninteractive.bg_stroke.color = egui::Color32::from_gray(110);
+    v.widgets.inactive.bg_fill = egui::Color32::from_gray(45);
+    v.selection.bg_fill = egui::Color32::from_rgb(0x2f, 0x74, 0xe0);
+    v
 }
 
 /// Startet die grafische Oberfläche (§8). Blockiert bis das Fenster schließt.
