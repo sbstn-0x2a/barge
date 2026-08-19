@@ -389,6 +389,7 @@ impl eframe::App for BargeApp {
             }
         }
         if let Some(summary) = finished_summary {
+            append_log(&summary);
             self.job = Job::Finished(summary);
         }
 
@@ -397,6 +398,8 @@ impl eframe::App for BargeApp {
         let mut new_zoom: Option<f32> = None;
         let mut new_theme: Option<String> = None;
         let mut open_dialog = false;
+        let mut open_log = false;
+        let mut open_config = false;
         egui::TopBottomPanel::top("header").show(ctx, |ui| {
             ui.add_space(4.0);
             ui.horizontal(|ui| {
@@ -411,6 +414,21 @@ impl eframe::App for BargeApp {
                 if ui.selectable_label(self.grid_view, "Kacheln").clicked() && !self.grid_view {
                     self.grid_view = true;
                     self.dirty = true;
+                }
+                ui.separator();
+                if ui
+                    .button("Log")
+                    .on_hover_text("Öffnet die barge-Logdatei (Verlauf der Moves) im Standardeditor")
+                    .clicked()
+                {
+                    open_log = true;
+                }
+                if ui
+                    .button("Config")
+                    .on_hover_text("Öffnet die Konfigurationsdatei (config.json) im Standardeditor")
+                    .clicked()
+                {
+                    open_config = true;
                 }
                 // Zoom-Regler rechts (persistiert).
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -459,6 +477,21 @@ impl eframe::App for BargeApp {
         }
         if open_dialog {
             self.open_add_library_dialog();
+        }
+        if open_log {
+            if let Some(p) = log_path() {
+                if !p.exists() {
+                    let _ = std::fs::write(&p, "barge — Move-Log\n\n");
+                }
+                open_path(p);
+            }
+        }
+        if open_config {
+            // Sicherstellen, dass die Datei existiert, bevor sie geöffnet wird.
+            self.save_config();
+            if let Some(p) = crate::config::Config::path() {
+                open_path(p);
+            }
         }
         // Limit-Änderung (aus der Optionszeile) erkennen und vormerken.
         if self.limit_mbps != self.last_limit {
@@ -825,6 +858,69 @@ fn dry_run_report(queue: &[(Game, MovePlan)]) -> String {
         s.push('\n');
     }
     s
+}
+
+/// Pfad der fortlaufenden Logdatei (`$XDG_STATE_HOME/barge/barge.log`).
+fn log_path() -> Option<PathBuf> {
+    let base = std::env::var_os("XDG_STATE_HOME")
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/state")))?;
+    let dir = base.join("barge");
+    std::fs::create_dir_all(&dir).ok()?;
+    Some(dir.join("barge.log"))
+}
+
+/// Hängt einen Move-Bericht mit Zeitstempel an die Logdatei an.
+fn append_log(summary: &str) {
+    let Some(path) = log_path() else {
+        return;
+    };
+    use std::io::Write;
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let _ = writeln!(f, "===== {} =====", format_epoch(now));
+        let _ = writeln!(f, "{}\n", summary);
+    }
+}
+
+/// Öffnet eine Datei/einen Ordner mit dem Standardprogramm des Systems
+/// (xdg-open, in einem Hintergrund-Thread, damit die UI nicht blockiert).
+fn open_path(path: PathBuf) {
+    std::thread::spawn(move || {
+        let _ = std::process::Command::new("xdg-open").arg(&path).spawn();
+    });
+}
+
+/// Formatiert Epoch-Sekunden als „YYYY-MM-DD HH:MM:SS UTC" (ohne Datums-Crate).
+fn format_epoch(secs: u64) -> String {
+    let days = (secs / 86400) as i64;
+    let rem = secs % 86400;
+    let (h, m, s) = (rem / 3600, (rem % 3600) / 60, rem % 60);
+    // Zivil-Datum aus Tagen seit Epoch (Algorithmus nach H. Hinnant).
+    let z = days + 719468;
+    let era = if z >= 0 { z } else { z - 146096 } / 146097;
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let mo = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if mo <= 2 { y + 1 } else { y };
+    format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02} UTC", y, mo, d, h, m, s)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn format_epoch_bekannte_werte() {
+        assert_eq!(super::format_epoch(0), "1970-01-01 00:00:00 UTC");
+        assert_eq!(super::format_epoch(1_000_000_000), "2001-09-09 01:46:40 UTC");
+    }
 }
 
 /// Cache-Verzeichnis für heruntergeladene Cover (`$XDG_CACHE_HOME/barge/covers`).

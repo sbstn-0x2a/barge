@@ -52,7 +52,8 @@ impl Default for Config {
 }
 
 impl Config {
-    fn path() -> Option<PathBuf> {
+    /// Pfad der Konfigurationsdatei (öffentlich, z. B. für den „Config öffnen"-Knopf).
+    pub fn path() -> Option<PathBuf> {
         let base = std::env::var_os("XDG_CONFIG_HOME")
             .map(PathBuf::from)
             .filter(|p| p.is_absolute())
