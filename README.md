@@ -28,8 +28,12 @@ In Arbeit. Umsetzung in Stufen (siehe `docs/design.md`, §11):
       (Token-Pacer), periodischer `fsync`, `copy_file_range` mit `read/write`-
       Fallback, **Sparse-Erhalt** (`SEEK_HOLE`/`SEEK_DATA`), Hardlinks,
       Symlinks, Permissions + mtime. Als `barge copy`-Subcommand testbar.
-- [ ] Stufe 3 — Journal + Crash-Recovery
-- [ ] Stufe 4 — Move-Orchestrierung (Vorbedingungen, Prefix-Fix, Trockenlauf)
+- [x] **Stufe 3 — Journal + Crash-Recovery.** Transaktionaler Move (`.partial`
+      → atomares `rename` → erst dann Quelle löschen), fsync-verankertes Journal
+      unter `$XDG_STATE_HOME/barge/jobs/`, Recovery (`cleanup`/`resume`/`finish`),
+      Prefix-Fix (§4.3). Crash-getestet (`kill`/`abort` mitten im Job).
+- [ ] Stufe 4 — Move-Orchestrierung (volle Vorbedingungen §5, Trockenlauf,
+      Mehrfachauswahl/Queue)
 - [ ] Stufe 5 — GUI (eframe/egui)
 - [ ] Stufe 6 — Feinschliff, AppImage
 
@@ -42,7 +46,8 @@ cargo build
 cargo run                        # alle erkannten Libraries + Spiele auflisten
 cargo run -- list <PFAD>         # bestimmten Library-Root (oder steamapps/) auflisten
 cargo run -- copy <SRC> <DST>    # Kopier-Engine standalone (Default max. 250 MB/s)
-cargo run -- copy <SRC> <DST> --limit 50    # gedrosselt auf 50 MB/s
+cargo run -- move <QUELL-LIB> <ZIEL-LIB> <APPID>   # vollständiger Move mit Journal
+cargo run -- recover             # unvollendete Jobs anzeigen / fortsetzen
 cargo test                       # Unit-Tests
 ```
 

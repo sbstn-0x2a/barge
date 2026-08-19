@@ -65,6 +65,8 @@ pub struct Stats {
     pub holes: u64,
     pub cfr_ok: u64,
     pub cfr_fallback: u64,
+    /// Beim Fortsetzen (§7.2) übersprungene, bereits vorhandene Dateien.
+    pub skipped_files: u64,
 }
 
 /// Laufzeitzustand eines Kopier-Jobs. Ein einziger Worker (dieser Aufruf),
@@ -75,6 +77,9 @@ pub struct Copier<F: FnMut(&Stats, f64)> {
     stats: Stats,
     inodes: HashMap<(u64, u64), PathBuf>,
     progress: F,
+    /// Beim Fortsetzen (§7.2): bereits vorhandene, nach Größe+mtime passende
+    /// Zieldateien überspringen statt neu zu kopieren.
+    skip_existing: bool,
 }
 
 impl<F: FnMut(&Stats, f64)> Copier<F> {
@@ -85,7 +90,14 @@ impl<F: FnMut(&Stats, f64)> Copier<F> {
             stats: Stats::default(),
             inodes: HashMap::new(),
             progress,
+            skip_existing: false,
         }
+    }
+
+    /// Aktiviert den Resume-Modus (§7.2): passende Zieldateien überspringen.
+    pub fn skip_existing(mut self, yes: bool) -> Self {
+        self.skip_existing = yes;
+        self
     }
 
     pub fn stats(&self) -> &Stats {
@@ -104,6 +116,14 @@ impl<F: FnMut(&Stats, f64)> Copier<F> {
 
         if ft.is_symlink() {
             let target = fs::read_link(src)?;
+            if self.skip_existing {
+                if let Ok(existing) = fs::read_link(dst) {
+                    if existing == target {
+                        self.stats.skipped_files += 1;
+                        return Ok(());
+                    }
+                }
+            }
             let _ = fs::remove_file(dst);
             symlink(&target, dst)?;
             self.stats.symlinks += 1;
@@ -147,6 +167,18 @@ impl<F: FnMut(&Stats, f64)> Copier<F> {
     }
 
     fn copy_file(&mut self, src: &Path, dst: &Path, md: &Metadata) -> io::Result<()> {
+        // Resume (§7.2): passende Zieldatei (Größe + mtime-Sekunden) überspringen.
+        if self.skip_existing {
+            if let Ok(dmd) = fs::symlink_metadata(dst) {
+                if dmd.is_file() && dmd.len() == md.len() && dmd.mtime() == md.mtime() {
+                    self.stats.skipped_files += 1;
+                    self.stats.bytes += md.len();
+                    (self.progress)(&self.stats, self.throttle.measured_mbps());
+                    return Ok(());
+                }
+            }
+        }
+
         let src_file = File::open(src)?;
         let dst_file = OpenOptions::new()
             .write(true)
@@ -430,6 +462,30 @@ mod tests {
         assert_eq!(a, b, "Hardlink nicht reproduziert");
         assert_eq!(c.stats().hardlinks, 1);
         assert_eq!(c.stats().symlinks, 1);
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn skip_existing_ueberspringt_passende_dateien() {
+        let dir = tmpdir("skip");
+        let src = dir.join("src");
+        let dst = dir.join("dst");
+        fs::create_dir_all(&src).unwrap();
+        fs::write(src.join("a.bin"), vec![1u8; 1_000_000]).unwrap();
+        fs::write(src.join("b.bin"), vec![2u8; 1_000_000]).unwrap();
+
+        // Erster Durchlauf: normal kopieren.
+        let mut c1 = Copier::new(0, noop_progress);
+        c1.copy_tree(&src, &dst).unwrap();
+        assert_eq!(c1.stats().files, 2);
+
+        // Zweiter Durchlauf mit Resume: beide passen nach Größe+mtime ->
+        // übersprungen, keine Datei neu kopiert.
+        let mut c2 = Copier::new(0, noop_progress).skip_existing(true);
+        c2.copy_tree(&src, &dst).unwrap();
+        assert_eq!(c2.stats().files, 0, "es wurde neu kopiert statt übersprungen");
+        assert_eq!(c2.stats().skipped_files, 2);
+
         fs::remove_dir_all(&dir).ok();
     }
 

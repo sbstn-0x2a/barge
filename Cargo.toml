@@ -7,11 +7,14 @@ license = "GPL-3.0"
 repository = "https://github.com/sbstn-0x2a/barge"
 rust-version = "1.75"
 
-# Stufe 1 (Discovery + Parsing, CLI) ist bewusst dependency-frei gehalten:
-# nur std + eine Handvoll libc-Syscalls (statvfs) via `extern "C"`.
-# Die GUI-Crates aus dem Handout (§9: eframe, egui_extras, rfd, ...) kommen
-# erst mit Stufe 5 dazu.
+# Stufe 1/2 sind bewusst dependency-frei (nur std + libc-Syscalls via
+# `extern "C"`). Ab Stufe 3 kommt für das Transaktionsjournal JSON dazu —
+# serde/serde_json sind im Handout §9 ohnehin vorgesehen. Zeitstempel (Epoch)
+# und Job-IDs (/dev/urandom) bleiben dependency-frei.
+# Die GUI-Crates (§9: eframe, egui_extras, rfd, ...) kommen erst mit Stufe 5.
 [dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 [profile.release]
 opt-level = 2

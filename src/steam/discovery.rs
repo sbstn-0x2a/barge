@@ -12,6 +12,29 @@ fn home() -> Option<PathBuf> {
     std::env::var_os("HOME").map(PathBuf::from)
 }
 
+/// Läuft Steam? Scan über `/proc/*/comm` nach `steam` oder `steamwebhelper`
+/// (§5.1). Ein Move bei laufendem Steam führt zu inkonsistenten Manifesten und
+/// wird hart blockiert.
+pub fn steam_running() -> bool {
+    let rd = match std::fs::read_dir("/proc") {
+        Ok(rd) => rd,
+        Err(_) => return false,
+    };
+    for entry in rd.flatten() {
+        // Nur numerische PID-Verzeichnisse.
+        if !entry.file_name().to_string_lossy().chars().all(|c| c.is_ascii_digit()) {
+            continue;
+        }
+        if let Ok(comm) = std::fs::read_to_string(entry.path().join("comm")) {
+            let name = comm.trim();
+            if name == "steam" || name == "steamwebhelper" {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 /// Standard-Orte einer Steam-Installation (§3.3), relativ zum Home.
 fn candidate_roots() -> Vec<PathBuf> {
     let Some(h) = home() else {

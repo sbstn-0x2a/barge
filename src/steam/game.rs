@@ -35,6 +35,40 @@ pub enum ComponentKind {
 }
 
 impl ComponentKind {
+    /// Alle Komponentenarten in fester Reihenfolge.
+    pub const ALL: [ComponentKind; 7] = [
+        ComponentKind::Common,
+        ComponentKind::Manifest,
+        ComponentKind::Compatdata,
+        ComponentKind::WorkshopContent,
+        ComponentKind::WorkshopManifest,
+        ComponentKind::Shadercache,
+        ComponentKind::Downloading,
+    ];
+
+    /// Pfad dieser Komponente relativ zu einem `steamapps/`-Verzeichnis (§4).
+    /// Für Quelle *und* Ziel identisch berechnet.
+    pub fn path_in(self, steamapps: &Path, appid: u32, installdir: &str) -> PathBuf {
+        match self {
+            ComponentKind::Common => steamapps.join("common").join(installdir),
+            ComponentKind::Manifest => steamapps.join(format!("appmanifest_{}.acf", appid)),
+            ComponentKind::Compatdata => steamapps.join("compatdata").join(appid.to_string()),
+            ComponentKind::WorkshopContent => {
+                steamapps.join("workshop").join("content").join(appid.to_string())
+            }
+            ComponentKind::WorkshopManifest => {
+                steamapps.join("workshop").join(format!("appworkshop_{}.acf", appid))
+            }
+            ComponentKind::Shadercache => steamapps.join("shadercache").join(appid.to_string()),
+            ComponentKind::Downloading => steamapps.join("downloading").join(appid.to_string()),
+        }
+    }
+
+    /// Ist die Komponente ein Verzeichnis (im Gegensatz zu einer ACF-Datei)?
+    pub fn is_dir(self) -> bool {
+        !matches!(self, ComponentKind::Manifest | ComponentKind::WorkshopManifest)
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             ComponentKind::Common => "common",
@@ -76,40 +110,10 @@ impl Game {
     /// Library. Prüft für jede Komponente aus §4, ob sie physisch existiert.
     pub fn from_manifest(manifest: Manifest, library: &Path, steamapps: &Path) -> Game {
         let id = manifest.appid;
-        let defs: [(ComponentKind, PathBuf); 7] = [
-            (
-                ComponentKind::Common,
-                steamapps.join("common").join(&manifest.installdir),
-            ),
-            (
-                ComponentKind::Manifest,
-                steamapps.join(format!("appmanifest_{}.acf", id)),
-            ),
-            (
-                ComponentKind::Compatdata,
-                steamapps.join("compatdata").join(id.to_string()),
-            ),
-            (
-                ComponentKind::WorkshopContent,
-                steamapps.join("workshop").join("content").join(id.to_string()),
-            ),
-            (
-                ComponentKind::WorkshopManifest,
-                steamapps.join("workshop").join(format!("appworkshop_{}.acf", id)),
-            ),
-            (
-                ComponentKind::Shadercache,
-                steamapps.join("shadercache").join(id.to_string()),
-            ),
-            (
-                ComponentKind::Downloading,
-                steamapps.join("downloading").join(id.to_string()),
-            ),
-        ];
-
-        let components = defs
+        let components = ComponentKind::ALL
             .into_iter()
-            .map(|(kind, path)| {
+            .map(|kind| {
+                let path = kind.path_in(steamapps, id, &manifest.installdir);
                 let present = path.exists();
                 Component { kind, path, present }
             })

@@ -9,12 +9,15 @@ mod mover;
 mod steam;
 mod util;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use mover::copy::{Copier, Stats};
+use mover::journal::{JobState, Journal};
+use mover::plan::MovePlan;
 use steam::game::Game;
 use steam::library::Library;
+use steam::manifest;
 use util::{dir_real_size, human_size};
 
 #[derive(Default)]
@@ -34,8 +37,27 @@ fn main() {
     // Subcommands. Ohne Subcommand: Library-Listing (Stufe 1).
     match args.first().map(String::as_str) {
         Some("copy") => cmd_copy(&args[1..]),
-        Some("list") => cmd_list(&args[1..]),
-        _ => cmd_list(&args),
+        Some("move") => cmd_move(&args[1..]),
+        Some("recover") => cmd_recover(&args[1..]),
+        Some("list") => {
+            warn_incomplete_jobs();
+            cmd_list(&args[1..]);
+        }
+        _ => {
+            warn_incomplete_jobs();
+            cmd_list(&args);
+        }
+    }
+}
+
+/// Beim Start auf unvollendete Jobs hinweisen (§7.2).
+fn warn_incomplete_jobs() {
+    let open = Journal::scan_incomplete();
+    if !open.is_empty() {
+        eprintln!(
+            "⚠ {} unvollendete(r) Move-Job(s) gefunden. Details/Recovery: `barge recover`\n",
+            open.len()
+        );
     }
 }
 
@@ -331,6 +353,252 @@ fn cmd_copy(args: &[String]) {
     );
 }
 
+/// `barge move <QUELL-LIB> <ZIEL-LIB> <APPID> [Optionen]`
+///
+/// Vollständiger, transaktionaler Move eines Spiels mit Journal und
+/// Crash-Recovery (Stufe 3, §7). Kopiert alle Komponenten (§4) nach `.partial`,
+/// benennt atomar um, räumt dann erst die Quelle ab.
+fn cmd_move(args: &[String]) {
+    let mut positional: Vec<&String> = Vec::new();
+    let mut limit_mbps: u64 = 250;
+    let mut delete_shadercache = true;
+    let mut crash_after_mb: u64 = 0;
+
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--unlimited" => limit_mbps = 0,
+            "--keep-shadercache" => delete_shadercache = false,
+            "--limit" => limit_mbps = parse_num(it.next(), "--limit"),
+            // Nur für Tests: nach N MB hart abbrechen (simuliert kill -9, §12).
+            "--crash-after-mb" => crash_after_mb = parse_num(it.next(), "--crash-after-mb"),
+            other if other.starts_with("--") => {
+                eprintln!("Unbekannte Option: {}", other);
+                std::process::exit(2);
+            }
+            _ => positional.push(a),
+        }
+    }
+
+    if positional.len() != 3 {
+        eprintln!("Aufruf: barge move <QUELL-LIB> <ZIEL-LIB> <APPID> [--limit MB/s] [--keep-shadercache]");
+        std::process::exit(2);
+    }
+    let source = normalize_lib_or_exit(positional[0]);
+    let target = normalize_lib_or_exit(positional[1]);
+    let appid: u32 = positional[2].parse().unwrap_or_else(|_| {
+        eprintln!("AppID muss eine Zahl sein: {}", positional[2]);
+        std::process::exit(2);
+    });
+
+    // --- Spiel laden
+    let src_apps = source.join("steamapps");
+    let manifest_path = src_apps.join(format!("appmanifest_{}.acf", appid));
+    let m = match manifest::read(&manifest_path) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("Spiel nicht in Quell-Library: {}", e);
+            std::process::exit(2);
+        }
+    };
+    let game = Game::from_manifest(m, &source, &src_apps);
+
+    // --- Minimal-Vorbedingungen (§5) — der volle Satz folgt in Stufe 4.
+    if steam::discovery::steam_running() {
+        eprintln!("ABBRUCH: Steam läuft. Bitte Steam beenden (§5.1) — kein „trotzdem fortfahren\".");
+        std::process::exit(4);
+    }
+    if let Some(reason) = game.manifest.blocked_reason() {
+        eprintln!("ABBRUCH: {} — {}", game.manifest.name, reason);
+        std::process::exit(5);
+    }
+
+    let plan = MovePlan::new(&game, &target, delete_shadercache);
+    if plan.items.is_empty() {
+        eprintln!("Nichts zu verschieben (keine Komponenten gefunden).");
+        std::process::exit(2);
+    }
+    // §5.5 — kein Zielkonflikt: nichts überschreiben.
+    for item in &plan.items {
+        if item.action != mover::plan::Action::DeleteSource && item.dst_final.exists() {
+            eprintln!(
+                "ABBRUCH: Ziel existiert bereits: {} (§5.5, kein Überschreiben)",
+                item.dst_final.display()
+            );
+            std::process::exit(3);
+        }
+    }
+
+    println!("barge move — {} (AppID {})", plan.name, appid);
+    println!("  Quelle : {}", source.display());
+    println!("  Ziel   : {}", target.display());
+    println!("  Größe  : {} über {} Komponente(n)", human_size(plan.bytes_total), plan.items.len());
+    println!("  Limit  : {}", if limit_mbps == 0 { "unbegrenzt".into() } else { format!("max. {} MB/s", limit_mbps) });
+    for item in &plan.items {
+        println!("    {:?}: {}", item.action, item.kind.label());
+    }
+    println!();
+
+    // --- Journal anlegen (§7.1 Schritt 1)
+    let labels = plan.moved_component_labels();
+    let mut journal = match Journal::create(
+        appid, &plan.name, &plan.installdir, &source, &target, &labels, plan.bytes_total,
+    ) {
+        Ok(j) => j,
+        Err(e) => {
+            eprintln!("Journal nicht anlegbar: {}", e);
+            std::process::exit(1);
+        }
+    };
+    println!("  Journal: {}\n", journal.path.display());
+
+    let total = plan.bytes_total;
+    let crash_bytes = crash_after_mb.saturating_mul(1_000_000);
+    let progress = make_progress(total, crash_bytes);
+
+    let rate = limit_mbps.saturating_mul(1_000_000);
+    match mover::execute::execute(&plan, rate, false, &mut journal, progress) {
+        Ok(st) => {
+            eprintln!();
+            println!("\n--- Move abgeschlossen ---");
+            print_move_stats(&st);
+        }
+        Err(e) => {
+            eprintln!("\nFehler: {}", e);
+            let _ = journal.set_state(JobState::Failed);
+            eprintln!("Job als FAILED markiert; Quelle unangetastet. Recovery: `barge recover`");
+            std::process::exit(1);
+        }
+    }
+}
+
+/// `barge recover [cleanup|resume|finish <ID>]`
+fn cmd_recover(args: &[String]) {
+    let open = Journal::scan_incomplete();
+
+    match args.first().map(String::as_str) {
+        None => {
+            if open.is_empty() {
+                println!("Keine unvollendeten Move-Jobs.");
+                return;
+            }
+            println!("Unvollendete Move-Jobs:\n");
+            for j in &open {
+                println!("  ID     : {}", j.id);
+                println!("  Spiel  : {} (AppID {})", j.name, j.appid);
+                println!("  Zustand: {:?}", j.state);
+                println!("  {} → {}", j.source_library.display(), j.target_library.display());
+                println!("  Fortschritt: {} / {}", human_size(j.bytes_done), human_size(j.bytes_total));
+                let hint = match j.state {
+                    JobState::Committed => "finish  (Ziel vollständig, nur Quell-Bereinigung offen)",
+                    _ => "cleanup (Ziel-.partial verwerfen, Quelle bleibt) ODER resume (fortsetzen)",
+                };
+                println!("  → barge recover {} {}\n", hint.split_whitespace().next().unwrap(), j.id);
+                println!("     empfohlen: {}\n", hint);
+            }
+        }
+        Some(action) => {
+            let id = match args.get(1) {
+                Some(id) => id,
+                None => {
+                    eprintln!("Aufruf: barge recover {} <ID>", action);
+                    std::process::exit(2);
+                }
+            };
+            let job = match open.iter().find(|j| &j.id == id) {
+                Some(j) => j.clone(),
+                None => {
+                    eprintln!("Kein Job mit ID {}", id);
+                    std::process::exit(2);
+                }
+            };
+            match action {
+                "cleanup" => match mover::execute::cleanup_target_partials(&job) {
+                    Ok(()) => println!("Aufgeräumt: Ziel-.partial entfernt, Quelle intakt. Job {}", id),
+                    Err(e) => { eprintln!("Fehler beim Aufräumen: {}", e); std::process::exit(1); }
+                },
+                "finish" => match mover::execute::finish_committed(&job) {
+                    Ok(()) => println!("Abgeschlossen: Quelle bereinigt. Job {}", id),
+                    Err(e) => { eprintln!("Fehler beim Abschließen: {}", e); std::process::exit(1); }
+                },
+                "resume" => {
+                    let plan = match MovePlan::rebuild_from_source(&job, true) {
+                        Ok(p) => p,
+                        Err(e) => { eprintln!("Resume nicht möglich (Quelle unlesbar?): {}", e); std::process::exit(1); }
+                    };
+                    let mut journal = job;
+                    let total = plan.bytes_total;
+                    println!("Setze Job {} fort ({})…", id, plan.name);
+                    let progress = make_progress(total, 0);
+                    match mover::execute::execute(&plan, 250 * 1_000_000, true, &mut journal, progress) {
+                        Ok(st) => { eprintln!(); println!("\n--- Fortsetzung abgeschlossen ---"); print_move_stats(&st); }
+                        Err(e) => { eprintln!("\nFehler: {}", e); std::process::exit(1); }
+                    }
+                }
+                other => {
+                    eprintln!("Unbekannte Aktion: {} (cleanup|resume|finish)", other);
+                    std::process::exit(2);
+                }
+            }
+        }
+    }
+}
+
+/// Fortschritts-Closure für Move/Resume; optional Crash-Injektion nach
+/// `crash_bytes` (Test, simuliert kill -9).
+fn make_progress(total: u64, crash_bytes: u64) -> impl FnMut(&Stats, f64) {
+    let mut last_print = Instant::now();
+    move |st: &Stats, avg_mbps: f64| {
+        if crash_bytes > 0 && st.bytes >= crash_bytes {
+            eprintln!("\n[TEST] Crash-Injektion nach {} — abort()", human_size(st.bytes));
+            std::process::abort();
+        }
+        let now = Instant::now();
+        if now.duration_since(last_print).as_millis() < 250 {
+            return;
+        }
+        last_print = now;
+        let pct = if total > 0 {
+            (st.bytes as f64 / total as f64 * 100.0).min(100.0)
+        } else {
+            0.0
+        };
+        eprint!(
+            "\r  {:>5.1} %  {} / {}  ·  {:.0} MB/s   ",
+            pct, human_size(st.bytes), human_size(total), avg_mbps
+        );
+        let _ = std::io::Write::flush(&mut std::io::stderr());
+    }
+}
+
+fn print_move_stats(st: &Stats) {
+    println!(
+        "  Dateien {} ({} übersprungen), Verzeichnisse {}, Symlinks {}, Hardlinks {}",
+        st.files, st.skipped_files, st.dirs, st.symlinks, st.hardlinks
+    );
+    println!("  {} kopiert, {} Löcher erhalten", human_size(st.bytes), st.holes);
+}
+
+fn parse_num(v: Option<&String>, flag: &str) -> u64 {
+    match v.and_then(|s| s.parse::<u64>().ok()) {
+        Some(n) => n,
+        None => {
+            eprintln!("{} erwartet eine Zahl", flag);
+            std::process::exit(2);
+        }
+    }
+}
+
+fn normalize_lib_or_exit(arg: &str) -> PathBuf {
+    match steam::discovery::normalize_root(Path::new(arg)) {
+        Some(root) => root,
+        None => {
+            eprintln!("Keine Steam-Library: {}", arg);
+            std::process::exit(2);
+        }
+    }
+}
+
 fn print_usage() {
     println!(
         "barge {} — Move Steam games between libraries, safely and at your own pace\n\n\
@@ -340,6 +608,11 @@ fn print_usage() {
          \x20 barge copy <QUELLE> <ZIEL> [--limit MB/s | --unlimited]\n\
          \x20                           Kopier-Engine standalone (Stufe 2): gedrosselt,\n\
          \x20                           sequenziell, mit fsync. Default 250 MB/s.\n\
+         \x20 barge move <QUELL-LIB> <ZIEL-LIB> <APPID> [--limit MB/s] [--keep-shadercache]\n\
+         \x20                           vollständiger, transaktionaler Move mit Journal +\n\
+         \x20                           Crash-Recovery (Stufe 3). AppID aus `barge list`.\n\
+         \x20 barge recover [cleanup|resume|finish <ID>]\n\
+         \x20                           unvollendete Jobs anzeigen / aufräumen / fortsetzen\n\
          \x20 barge -h | --help         diese Hilfe\n",
         env!("CARGO_PKG_VERSION")
     );
