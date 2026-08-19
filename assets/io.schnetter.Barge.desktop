@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=barge
+GenericName=Steam-Bibliotheken verschieben
+Comment=Move Steam games between libraries, safely and at your own pace
+Exec=barge
+Icon=io.schnetter.Barge
+Terminal=false
+Categories=Utility;Game;
+Keywords=Steam;Games;Library;Move;Proton;
+StartupWMClass=io.schnetter.Barge
