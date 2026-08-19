@@ -22,6 +22,7 @@ use mover::journal::{JobState, Journal};
 use mover::plan::MovePlan;
 use steam::game::Game;
 use steam::library::Library;
+use i18n::{tr, trf};
 use steam::manifest;
 use util::{dir_real_size, human_size};
 
@@ -54,7 +55,7 @@ fn main() {
             cmd_list(&args[1..]);
         }
         Some(other) => {
-            eprintln!("Unbekannter Befehl: {}. Siehe `barge --help`.", other);
+            eprintln!("{}", trf("Unbekannter Befehl: {}. Siehe `barge --help`.", "Unknown command: {}. See `barge --help`.", &[other]));
             std::process::exit(2);
         }
     }
@@ -73,8 +74,12 @@ fn warn_incomplete_jobs() {
     let open = Journal::scan_incomplete();
     if !open.is_empty() {
         eprintln!(
-            "⚠ {} unvollendete(r) Move-Job(s) gefunden. Details/Recovery: `barge recover`\n",
-            open.len()
+            "{}\n",
+            trf(
+                "(!) {} unvollendete(r) Move-Job(s) gefunden. Details/Recovery: `barge recover`",
+                "(!) {} unfinished move job(s) found. Details/recovery: `barge recover`",
+                &[&open.len().to_string()],
+            )
         );
     }
 }
@@ -688,23 +693,35 @@ fn normalize_lib_or_exit(arg: &str) -> PathBuf {
 }
 
 fn print_usage() {
-    println!(
-        "barge {} — Move Steam games between libraries, safely and at your own pace\n\n\
-         AUFRUF:\n\
+    let body = tr(
+        "AUFRUF:\n\
          \x20 barge                     grafische Oberfläche starten (Standard)\n\
          \x20 barge list                alle erkannten Libraries + Spiele auflisten\n\
          \x20 barge list <PFAD>…        bestimmte Library-Roots (oder steamapps/) auflisten\n\
          \x20 barge copy <QUELLE> <ZIEL> [--limit MB/s | --unlimited]\n\
-         \x20                           Kopier-Engine standalone (Stufe 2): gedrosselt,\n\
-         \x20                           sequenziell, mit fsync. Default 250 MB/s.\n\
+         \x20                           Kopier-Engine standalone: gedrosselt, sequenziell, fsync\n\
          \x20 barge move <QUELL-LIB> <ZIEL-LIB> <APPID>… [--dry-run] [--limit MB/s]\n\
          \x20                           [--keep-shadercache] [--no-verify]\n\
-         \x20                           vollständiger, transaktionaler Move mit §5-Prüfung,\n\
-         \x20                           Journal + Crash-Recovery. Mehrere AppIDs = Queue.\n\
-         \x20                           --dry-run zeigt Plan + Prüfungen ohne Änderung.\n\
+         \x20                           vollständiger Move mit §5-Prüfung, Journal, Recovery\n\
          \x20 barge recover [cleanup|resume|finish <ID>]\n\
          \x20                           unvollendete Jobs anzeigen / aufräumen / fortsetzen\n\
-         \x20 barge -h | --help         diese Hilfe\n",
-        env!("CARGO_PKG_VERSION")
+         \x20 barge -h | --help         diese Hilfe",
+        "USAGE:\n\
+         \x20 barge                     start the graphical interface (default)\n\
+         \x20 barge list                list all detected libraries + games\n\
+         \x20 barge list <PATH>…        list specific library roots (or steamapps/)\n\
+         \x20 barge copy <SRC> <DST> [--limit MB/s | --unlimited]\n\
+         \x20                           standalone copy engine: throttled, sequential, fsync\n\
+         \x20 barge move <SRC-LIB> <DST-LIB> <APPID>… [--dry-run] [--limit MB/s]\n\
+         \x20                           [--keep-shadercache] [--no-verify]\n\
+         \x20                           full move with §5 checks, journal, recovery\n\
+         \x20 barge recover [cleanup|resume|finish <ID>]\n\
+         \x20                           show / clean up / resume unfinished jobs\n\
+         \x20 barge -h | --help         this help",
+    );
+    println!(
+        "barge {} — Move Steam games between libraries, safely and at your own pace\n\n{}",
+        env!("CARGO_PKG_VERSION"),
+        body
     );
 }
