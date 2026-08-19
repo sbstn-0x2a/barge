@@ -19,18 +19,29 @@ enum ToggleCol {
 }
 
 /// Feste Höhe der Toolbar-Zeile über der Tabelle, damit Quelle und Ziel exakt
-/// auf gleicher Höhe beginnen.
-const TOOLBAR_H: f32 = 26.0;
+/// auf gleicher Höhe beginnen (per `set_height`, unabhängig vom Inhalt).
+const TOOLBAR_H: f32 = 28.0;
 /// Höhe der (fixierten) Tabellen-Kopfzeile.
 const HEADER_H: f32 = 24.0;
 
-fn library_combo(ui: &mut egui::Ui, id: &str, libraries: &[LibraryView], idx: &mut usize) {
+/// Library-Dropdown. `exclude` blendet eine Bibliothek aus (die auf der anderen
+/// Seite gewählte), damit Quelle und Ziel nicht identisch werden können.
+fn library_combo(
+    ui: &mut egui::Ui,
+    id: &str,
+    libraries: &[LibraryView],
+    idx: &mut usize,
+    exclude: Option<usize>,
+) {
     let current = libraries.get(*idx).map(|l| l.label.as_str()).unwrap_or("—");
     egui::ComboBox::from_id_salt(id)
         .width(ui.available_width() - 8.0)
         .selected_text(current)
         .show_ui(ui, |ui| {
             for (i, lib) in libraries.iter().enumerate() {
+                if Some(i) == exclude {
+                    continue;
+                }
                 ui.selectable_value(idx, i, lib.label.as_str());
             }
         });
@@ -95,6 +106,7 @@ pub fn source_panel(
     ui: &mut egui::Ui,
     libraries: &[LibraryView],
     source_idx: &mut usize,
+    target_idx: usize,
     selected: &mut HashSet<u32>,
     comp_choice: &mut HashMap<u32, ComponentChoice>,
 ) {
@@ -103,12 +115,14 @@ pub fn source_panel(
         ui.label("Keine Steam-Libraries gefunden.");
         return;
     }
-    library_combo(ui, "source_lib", libraries, source_idx);
+    // Bei mehreren Bibliotheken das Ziel aus der Quell-Auswahl ausblenden.
+    let exclude = (libraries.len() > 1).then_some(target_idx);
+    library_combo(ui, "source_lib", libraries, source_idx, exclude);
     let lib = &libraries[*source_idx];
     disk_line(ui, lib);
 
     ui.horizontal(|ui| {
-        ui.set_min_height(TOOLBAR_H);
+        ui.set_height(TOOLBAR_H);
         if ui.small_button("Alle").clicked() {
             for r in lib.games.iter().filter(|r| r.blocked_reason.is_none()) {
                 selected.insert(r.appid);
@@ -241,15 +255,17 @@ pub fn target_panel(
     if libraries.is_empty() {
         return;
     }
-    library_combo(ui, "target_lib", libraries, target_idx);
+    // Bei mehreren Bibliotheken die Quelle aus der Ziel-Auswahl ausblenden.
+    let exclude = (libraries.len() > 1).then_some(source_idx);
+    library_combo(ui, "target_lib", libraries, target_idx, exclude);
     let lib = &libraries[*target_idx];
     disk_line(ui, lib);
 
-    // Toolbar-Zeile gleicher Höhe wie in der Quelle (statt Separator).
+    // Toolbar-Zeile exakt gleicher Höhe wie in der Quelle (statt Separator).
     ui.horizontal(|ui| {
-        ui.set_min_height(TOOLBAR_H);
+        ui.set_height(TOOLBAR_H);
         if *target_idx == source_idx {
-            ui.colored_label(egui::Color32::LIGHT_RED, "= Quelle (bitte anderes Ziel wählen)");
+            ui.weak("Nur eine Bibliothek — kein Ziel zum Verschieben");
         } else {
             ui.weak("Vorschau — bereits im Ziel installierte Spiele");
         }

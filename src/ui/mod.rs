@@ -270,7 +270,12 @@ impl eframe::App for BargeApp {
                         if ui.add_enabled(can_go, btn).clicked() {
                             start_move = true;
                         }
-                        if same {
+                        if self.libraries.len() < 2 {
+                            ui.colored_label(
+                                egui::Color32::LIGHT_RED,
+                                "Nur eine Steam-Bibliothek gefunden — kein Ziel zum Verschieben",
+                            );
+                        } else if same {
                             ui.colored_label(egui::Color32::LIGHT_RED, "Quelle und Ziel sind identisch");
                         } else if summary.count == 0 {
                             ui.label("keine Spiele ausgewählt");
@@ -289,6 +294,7 @@ impl eframe::App for BargeApp {
                     ui,
                     &self.libraries,
                     &mut self.source_idx,
+                    self.target_idx,
                     &mut self.selected,
                     &mut self.comp_choice,
                 );
