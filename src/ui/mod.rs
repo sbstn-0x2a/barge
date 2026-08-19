@@ -408,14 +408,17 @@ impl eframe::App for BargeApp {
             ui.add_space(4.0);
             ui.horizontal(|ui| {
                 ui.heading("barge");
-                ui.label("— Steam-Spiele sicher und gedrosselt verschieben");
+                ui.label(tr(
+                    "— Steam-Spiele sicher und gedrosselt verschieben",
+                    "— move Steam games safely and at your own pace",
+                ));
                 ui.separator();
-                // Ansicht Liste/Kacheln.
-                if ui.selectable_label(!self.grid_view, "Liste").clicked() && self.grid_view {
+                // Ansicht Liste/Bildansicht.
+                if ui.selectable_label(!self.grid_view, tr("Liste", "List")).clicked() && self.grid_view {
                     self.grid_view = false;
                     self.dirty = true;
                 }
-                if ui.selectable_label(self.grid_view, "Kacheln").clicked() && !self.grid_view {
+                if ui.selectable_label(self.grid_view, tr("Bildansicht", "Covers")).clicked() && !self.grid_view {
                     self.grid_view = true;
                     self.dirty = true;
                 }

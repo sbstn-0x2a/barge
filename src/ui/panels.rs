@@ -237,7 +237,7 @@ pub fn source_panel(
             selected.clear();
         }
         ui.weak(if grid {
-            tr("· Kachel anklicken zum Auswählen", "· click a tile to select")
+            tr("· Bild anklicken zum Auswählen", "· click a cover to select")
         } else {
             tr("· Spaltenkopf schaltet die Auswahl um", "· click a column header to toggle")
         });
