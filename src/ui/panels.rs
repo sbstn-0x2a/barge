@@ -1,27 +1,13 @@
-//! Zwei-Panel-Ansicht (§8.1): links Quelle mit Auswahl, rechts Ziel.
+//! Zwei-Panel-Ansicht (§8.1): links Quelle als Tabelle mit Auswahl und
+//! Komponenten-Spalten, rechts Ziel.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use eframe::egui;
 
 use super::{GameRow, LibraryView};
+use crate::mover::plan::ComponentChoice;
 use crate::util::human_size;
-
-/// Kleine, dezente Komponenten-Marker rechts neben der Größe (§4).
-fn component_tags(ui: &mut egui::Ui, row: &GameRow) {
-    let tag = |ui: &mut egui::Ui, text: &str, hover: &str| {
-        ui.weak(text).on_hover_text(hover);
-    };
-    if row.has_shadercache {
-        tag(ui, "shader", "shadercache vorhanden (Default: löschen)");
-    }
-    if row.has_workshop {
-        tag(ui, "workshop", "Workshop-Mods vorhanden");
-    }
-    if row.has_compatdata {
-        tag(ui, "compat", "compatdata vorhanden (Savegames + Proton-Prefix)");
-    }
-}
 
 fn library_combo(ui: &mut egui::Ui, id: &str, libraries: &[LibraryView], idx: &mut usize) {
     let current = libraries.get(*idx).map(|l| l.label.as_str()).unwrap_or("—");
@@ -54,12 +40,48 @@ fn disk_line(ui: &mut egui::Ui, lib: &LibraryView) {
     }
 }
 
-/// Linkes Panel: Library-Auswahl + Spieleliste mit Auswahl-Checkboxen.
+/// Zelle einer Komponenten-Spalte: Checkbox falls Komponente vorhanden, sonst
+/// ein dezenter Strich.
+fn comp_cell(ui: &mut egui::Ui, active: bool, val: &mut bool) {
+    if active {
+        ui.checkbox(val, "");
+    } else {
+        ui.weak("–");
+    }
+}
+
+/// Schaltet eine Komponenten-Spalte für alle ausgewählten Spiele (mit dieser
+/// Komponente) um: sind alle an, werden alle aus — sonst alle an.
+fn toggle_all(
+    games: &[GameRow],
+    selected: &HashSet<u32>,
+    choices: &mut HashMap<u32, ComponentChoice>,
+    present: fn(&GameRow) -> bool,
+    get: fn(&ComponentChoice) -> bool,
+    set: fn(&mut ComponentChoice, bool),
+) {
+    let ids: Vec<u32> = games
+        .iter()
+        .filter(|r| selected.contains(&r.appid) && present(r))
+        .map(|r| r.appid)
+        .collect();
+    if ids.is_empty() {
+        return;
+    }
+    let all_on = ids.iter().all(|id| get(choices.entry(*id).or_default()));
+    for id in ids {
+        set(choices.entry(id).or_default(), !all_on);
+    }
+}
+
+/// Linkes Panel: Library-Auswahl + Spieltabelle mit Auswahl- und
+/// Komponenten-Spalten.
 pub fn source_panel(
     ui: &mut egui::Ui,
     libraries: &[LibraryView],
     source_idx: &mut usize,
     selected: &mut HashSet<u32>,
+    comp_choice: &mut HashMap<u32, ComponentChoice>,
 ) {
     ui.heading("Quelle");
     if libraries.is_empty() {
@@ -77,52 +99,85 @@ pub fn source_panel(
             }
         }
         if ui.small_button("Keine").clicked() {
-            for r in &lib.games {
-                selected.remove(&r.appid);
-            }
+            selected.clear();
         }
+        ui.weak("· Komponenten je Spiel abwählbar, Spaltenkopf schaltet Auswahl um");
     });
     ui.separator();
 
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
         .show(ui, |ui| {
-            for row in &lib.games {
-                ui.horizontal(|ui| {
-                    let enabled = row.blocked_reason.is_none();
-                    let mut checked = selected.contains(&row.appid);
+            egui::Grid::new("games_grid")
+                .striped(true)
+                .num_columns(6)
+                .spacing([10.0, 4.0])
+                .show(ui, |ui| {
+                    // --- Kopfzeile
+                    ui.label("");
+                    ui.strong("Spiel");
+                    ui.strong("Größe");
                     if ui
-                        .add_enabled(enabled, egui::Checkbox::new(&mut checked, ""))
-                        .changed()
+                        .button("compat")
+                        .on_hover_text("compatdata (Savegames + Prefix). An = mitnehmen, aus = in Quelle belassen. Klick: für alle Ausgewählten umschalten")
+                        .clicked()
                     {
-                        if checked {
-                            selected.insert(row.appid);
-                        } else {
-                            selected.remove(&row.appid);
-                        }
+                        toggle_all(&lib.games, selected, comp_choice,
+                            |r| r.has_compatdata, |c| c.compatdata, |c, v| c.compatdata = v);
                     }
+                    if ui
+                        .button("workshop")
+                        .on_hover_text("Workshop-Mods. An = mitnehmen, aus = belassen. Klick: für alle Ausgewählten umschalten")
+                        .clicked()
+                    {
+                        toggle_all(&lib.games, selected, comp_choice,
+                            |r| r.has_workshop, |c| c.workshop, |c, v| c.workshop = v);
+                    }
+                    if ui
+                        .button("shader")
+                        .on_hover_text("shadercache (wird neu erzeugt). An = mitnehmen, aus = löschen. Standard: aus. Klick: für alle Ausgewählten umschalten")
+                        .clicked()
+                    {
+                        toggle_all(&lib.games, selected, comp_choice,
+                            |r| r.has_shadercache, |c| c.move_shadercache, |c, v| c.move_shadercache = v);
+                    }
+                    ui.end_row();
 
-                    let name = if row.is_tool {
-                        format!("🔧 {}", row.name)
-                    } else {
-                        row.name.clone()
-                    };
-                    ui.add(egui::Label::new(name).truncate());
+                    // --- Datenzeilen
+                    for row in &lib.games {
+                        let enabled = row.blocked_reason.is_none();
 
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let mut sel = selected.contains(&row.appid);
+                        if ui
+                            .add_enabled(enabled, egui::Checkbox::new(&mut sel, ""))
+                            .changed()
+                        {
+                            if sel {
+                                selected.insert(row.appid);
+                            } else {
+                                selected.remove(&row.appid);
+                            }
+                        }
+
                         match &row.blocked_reason {
                             Some(reason) => {
-                                ui.weak(format!("⚠ {}", reason));
+                                ui.add(egui::Label::new(egui::RichText::new(&row.name).weak()))
+                                    .on_hover_text(reason);
                             }
                             None => {
-                                ui.monospace(human_size(row.size));
-                                // Marker links neben der Größe (§4).
-                                component_tags(ui, row);
+                                ui.label(&row.name);
                             }
                         }
-                    });
+
+                        ui.monospace(human_size(row.size));
+
+                        let choice = comp_choice.entry(row.appid).or_default();
+                        comp_cell(ui, enabled && row.has_compatdata, &mut choice.compatdata);
+                        comp_cell(ui, enabled && row.has_workshop, &mut choice.workshop);
+                        comp_cell(ui, enabled && row.has_shadercache, &mut choice.move_shadercache);
+                        ui.end_row();
+                    }
                 });
-            }
         });
 }
 
@@ -151,12 +206,7 @@ pub fn target_panel(
         .show(ui, |ui| {
             for row in &lib.games {
                 ui.horizontal(|ui| {
-                    let name = if row.is_tool {
-                        format!("🔧 {}", row.name)
-                    } else {
-                        row.name.clone()
-                    };
-                    ui.add(egui::Label::new(name).truncate());
+                    ui.add(egui::Label::new(&row.name).truncate());
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.monospace(human_size(row.size));
                     });

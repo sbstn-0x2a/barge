@@ -9,13 +9,13 @@ mod panels;
 mod progress;
 mod settings;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::mpsc::Receiver;
 
 use eframe::egui;
 
-use crate::mover::plan::MovePlan;
+use crate::mover::plan::{ComponentChoice, MovePlan};
 use crate::mover::preconditions;
 use crate::steam::game::Game;
 
@@ -32,7 +32,6 @@ pub struct GameRow {
     pub name: String,
     pub size: u64,
     pub blocked_reason: Option<String>,
-    pub is_tool: bool,
     /// Vorhandene, sichtbar zu machende Zusatzkomponenten (§4).
     pub has_compatdata: bool,
     pub has_workshop: bool,
@@ -53,8 +52,9 @@ pub struct BargeApp {
     source_idx: usize,
     target_idx: usize,
     selected: HashSet<u32>,
+    /// Komponentenwahl je Spiel (§4); fehlt ein Eintrag, gilt der Default.
+    comp_choice: HashMap<u32, ComponentChoice>,
     limit_mbps: u64,
-    delete_shadercache: bool,
     dry_run: bool,
     job: Job,
     incomplete_jobs: usize,
@@ -68,9 +68,6 @@ pub struct BargeApp {
 pub struct SelectionSummary {
     pub count: usize,
     pub bytes: u64,
-    pub compatdata: usize,
-    pub workshop: usize,
-    pub shadercache: usize,
 }
 
 impl BargeApp {
@@ -83,8 +80,8 @@ impl BargeApp {
             source_idx: 0,
             target_idx: 0,
             selected: HashSet::new(),
+            comp_choice: HashMap::new(),
             limit_mbps: 250,
-            delete_shadercache: true,
             dry_run: false,
             job: Job::Idle,
             incomplete_jobs: crate::mover::journal::Journal::scan_incomplete().len(),
@@ -101,9 +98,6 @@ impl BargeApp {
             if self.selected.contains(&row.appid) {
                 s.count += 1;
                 s.bytes += row.size;
-                s.compatdata += row.has_compatdata as usize;
-                s.workshop += row.has_workshop as usize;
-                s.shadercache += row.has_shadercache as usize;
             }
         }
         s
@@ -119,7 +113,8 @@ impl BargeApp {
             .iter()
             .filter(|r| self.selected.contains(&r.appid) && r.blocked_reason.is_none())
             .map(|r| {
-                let plan = MovePlan::new(&r.game, &target, self.delete_shadercache);
+                let choice = self.comp_choice.get(&r.appid).copied().unwrap_or_default();
+                let plan = MovePlan::new(&r.game, &target, choice);
                 (r.game.clone(), plan)
             })
             .collect()
@@ -127,6 +122,7 @@ impl BargeApp {
 
     fn reload(&mut self, ctx: &egui::Context) {
         self.selected.clear();
+        self.comp_choice.clear();
         self.job = Job::Idle;
         self.load_error = None;
         self.incomplete_jobs = crate::mover::journal::Journal::scan_incomplete().len();
@@ -225,13 +221,7 @@ impl eframe::App for BargeApp {
                     ui.label("Move abgeschlossen — siehe Ergebnis-Fenster.");
                 }
                 Job::Idle => {
-                    settings::bar(
-                        ui,
-                        &mut self.limit_mbps,
-                        &mut self.delete_shadercache,
-                        &mut self.dry_run,
-                        &summary,
-                    );
+                    settings::bar(ui, &mut self.limit_mbps, &mut self.dry_run, &summary);
                     let same = self.source_idx == self.target_idx;
                     let can_go = summary.count > 0 && !same;
                     ui.horizontal(|ui| {
@@ -254,7 +244,13 @@ impl eframe::App for BargeApp {
             .resizable(true)
             .default_width(480.0)
             .show(ctx, |ui| {
-                panels::source_panel(ui, &self.libraries, &mut self.source_idx, &mut self.selected);
+                panels::source_panel(
+                    ui,
+                    &self.libraries,
+                    &mut self.source_idx,
+                    &mut self.selected,
+                    &mut self.comp_choice,
+                );
             });
 
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -313,19 +309,22 @@ impl eframe::App for BargeApp {
 fn dry_run_report(queue: &[(Game, MovePlan)]) -> String {
     use std::fmt::Write;
     let mut s = String::new();
-    let _ = writeln!(s, "TROCKENLAUF — keine Datei wird angefasst (§8.4)\n");
+    let _ = writeln!(s, "TROCKENLAUF -- keine Datei wird angefasst (§8.4)\n");
     for (game, plan) in queue {
         let _ = writeln!(
             s,
-            "▸ {} (AppID {}) — {} über {} Komponente(n)",
+            "- {} (AppID {}) -- {} ueber {} Komponente(n)",
             plan.name,
             plan.appid,
             crate::util::human_size(plan.bytes_total),
             plan.items.len()
         );
+        for item in &plan.items {
+            let _ = writeln!(s, "    {:?}: {}", item.action, item.kind.label());
+        }
         let report = preconditions::check(game, plan);
         for c in &report.checks {
-            let _ = writeln!(s, "   {} {}: {}", if c.passed { "✓" } else { "✗" }, c.name, c.detail);
+            let _ = writeln!(s, "    [{}] {}: {}", if c.passed { "ok" } else { "!!" }, c.name, c.detail);
         }
         s.push('\n');
     }
@@ -352,7 +351,6 @@ fn spawn_load(ctx: egui::Context) -> Receiver<Result<Vec<LibraryView>, String>> 
                         name: g.manifest.name.clone(),
                         size,
                         blocked_reason: g.manifest.blocked_reason(),
-                        is_tool: g.manifest.is_tool(),
                         has_compatdata: present(ComponentKind::Compatdata),
                         has_workshop: present(ComponentKind::WorkshopContent),
                         has_shadercache: present(ComponentKind::Shadercache),

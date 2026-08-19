@@ -421,7 +421,12 @@ fn cmd_move(args: &[String]) {
             }
         };
         let game = Game::from_manifest(m, &source, &src_apps);
-        let plan = MovePlan::new(&game, &target, delete_shadercache);
+        let choice = mover::plan::ComponentChoice {
+            compatdata: true,
+            workshop: true,
+            move_shadercache: !delete_shadercache,
+        };
+        let plan = MovePlan::new(&game, &target, choice);
         if plan.items.is_empty() {
             eprintln!("AppID {}: nichts zu verschieben (keine Komponenten gefunden).", appid);
             std::process::exit(2);
@@ -596,7 +601,7 @@ fn cmd_recover(args: &[String]) {
                     Err(e) => { eprintln!("Fehler beim Abschließen: {}", e); std::process::exit(1); }
                 },
                 "resume" => {
-                    let plan = match MovePlan::rebuild_from_source(&job, true) {
+                    let plan = match MovePlan::rebuild_from_source(&job) {
                         Ok(p) => p,
                         Err(e) => { eprintln!("Resume nicht möglich (Quelle unlesbar?): {}", e); std::process::exit(1); }
                     };

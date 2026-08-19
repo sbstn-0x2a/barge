@@ -59,21 +59,22 @@ impl RunningJob {
                     self.rate_mbps = rate_mbps;
                 }
                 Msg::Skipped { name, reasons } => {
-                    self.log.push(format!("⧗ übersprungen: {} — {}", name, reasons.join("; ")));
+                    // ASCII-Marker: die egui-Monospace-Schrift hat keine ✓/✗-Glyphen.
+                    self.log.push(format!("SKIP  {} -- {}", name, reasons.join("; ")));
                 }
                 Msg::Done { name, moved, deleted } => {
                     self.queue_done += 1;
-                    let mut line = format!("✓ {} — verschoben: {}", name, moved.join(", "));
+                    let mut line = format!("OK    {} -- verschoben: {}", name, moved.join(", "));
                     if !deleted.is_empty() {
-                        line.push_str(&format!("; gelöscht: {}", deleted.join(", ")));
+                        line.push_str(&format!("; geloescht: {}", deleted.join(", ")));
                     }
                     self.log.push(line);
                 }
                 Msg::Failed { name, error } => {
-                    self.log.push(format!("✗ FEHLER: {} — {}", name, error));
+                    self.log.push(format!("FAIL  {} -- {}", name, error));
                 }
                 Msg::Cancelled => {
-                    self.log.push("abgebrochen — .partial aufgeräumt, Quelle intakt".into());
+                    self.log.push("Abgebrochen -- .partial aufgeraeumt, Quelle intakt".into());
                     self.finished = true;
                 }
                 Msg::AllDone { moved, total } => {

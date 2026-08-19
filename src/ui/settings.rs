@@ -5,38 +5,12 @@ use eframe::egui;
 use super::SelectionSummary;
 use crate::util::human_size;
 
-pub fn bar(
-    ui: &mut egui::Ui,
-    limit_mbps: &mut u64,
-    delete_shadercache: &mut bool,
-    dry_run: &mut bool,
-    sel: &SelectionSummary,
-) {
+pub fn bar(ui: &mut egui::Ui, limit_mbps: &mut u64, dry_run: &mut bool, sel: &SelectionSummary) {
     ui.horizontal(|ui| {
         ui.strong(format!("Auswahl: {} Spiel(e)", sel.count));
         ui.label(format!("· {}", human_size(sel.bytes)));
+        ui.weak("(Komponenten je Spiel in den Spalten rechts)");
     });
-
-    // Aggregat der enthaltenen Zusatzkomponenten über die Auswahl (§4).
-    if sel.count > 0 {
-        let mut parts: Vec<String> = Vec::new();
-        if sel.compatdata > 0 {
-            parts.push(format!("compatdata ×{} (Savegames)", sel.compatdata));
-        }
-        if sel.workshop > 0 {
-            parts.push(format!("workshop ×{} (Mods)", sel.workshop));
-        }
-        if sel.shadercache > 0 {
-            let what = if *delete_shadercache { "werden gelöscht" } else { "werden mitgenommen" };
-            parts.push(format!("shadercache ×{} ({})", sel.shadercache, what));
-        }
-        let text = if parts.is_empty() {
-            "enthält: nur Spieldaten".to_string()
-        } else {
-            format!("enthält: {}", parts.join(" · "))
-        };
-        ui.label(egui::RichText::new(text).weak());
-    }
 
     ui.horizontal(|ui| {
         // §6.1: Das Label heißt bewusst „max. Rate“, nicht „Rate“.
@@ -49,10 +23,8 @@ pub fn bar(
         if unlimited {
             ui.colored_label(egui::Color32::LIGHT_RED, "⚠ ohne Drossel");
         }
-    });
 
-    ui.horizontal(|ui| {
-        ui.checkbox(delete_shadercache, "Shadercache löschen");
+        ui.separator();
         ui.checkbox(dry_run, "Trockenlauf")
             .on_hover_text("Alle Prüfungen und der vollständige Plan, ohne eine Datei anzufassen (§8.4)");
     });

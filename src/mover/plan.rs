@@ -31,6 +31,24 @@ pub struct PlanItem {
     pub dst_partial: Option<PathBuf>,
 }
 
+/// Wahl der beweglichen Zusatzkomponenten je Spiel (§4). `common` und
+/// `manifest` werden immer verschoben; `downloading` immer gelöscht.
+#[derive(Debug, Clone, Copy)]
+pub struct ComponentChoice {
+    /// compatdata (Savegames + Prefix): true = mitnehmen, false = in Quelle belassen.
+    pub compatdata: bool,
+    /// Workshop-Inhalte (Mods): true = mitnehmen, false = belassen.
+    pub workshop: bool,
+    /// Shadercache: true = mitnehmen, false = in Quelle löschen (Default, §4).
+    pub move_shadercache: bool,
+}
+
+impl Default for ComponentChoice {
+    fn default() -> Self {
+        ComponentChoice { compatdata: true, workshop: true, move_shadercache: false }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct MovePlan {
     pub appid: u32,
@@ -43,11 +61,11 @@ pub struct MovePlan {
 }
 
 impl MovePlan {
-    /// Baut den Plan aus einem Spiel und der Ziel-Library. Nur real vorhandene
-    /// Komponenten werden aufgenommen. `delete_shadercache` (§4) bestimmt, ob
-    /// der Shadercache mitgenommen (dann `MoveDir`) oder in der Quelle gelöscht
-    /// wird (Default).
-    pub fn new(game: &Game, target_library: &Path, delete_shadercache: bool) -> MovePlan {
+    /// Baut den Plan aus einem Spiel, der Ziel-Library und der Komponentenwahl
+    /// (§4). Nur real vorhandene Komponenten werden aufgenommen; abgewählte
+    /// compatdata/workshop bleiben in der Quelle, Shadercache wird je nach Wahl
+    /// mitgenommen oder gelöscht.
+    pub fn new(game: &Game, target_library: &Path, choice: ComponentChoice) -> MovePlan {
         let appid = game.manifest.appid;
         let installdir = game.manifest.installdir.clone();
         let src_apps = game.library.join("steamapps");
@@ -65,7 +83,17 @@ impl MovePlan {
             let dst_final = kind.path_in(&dst_apps, appid, &installdir);
 
             let action = match kind {
-                ComponentKind::Shadercache if delete_shadercache => Action::DeleteSource,
+                // Abgewählt -> in der Quelle belassen (nicht in den Plan).
+                ComponentKind::Compatdata if !choice.compatdata => continue,
+                ComponentKind::WorkshopContent if !choice.workshop => continue,
+                ComponentKind::WorkshopManifest if !choice.workshop => continue,
+                ComponentKind::Shadercache => {
+                    if choice.move_shadercache {
+                        Action::MoveDir
+                    } else {
+                        Action::DeleteSource
+                    }
+                }
                 ComponentKind::Downloading => Action::DeleteSource,
                 _ if kind.is_dir() => Action::MoveDir,
                 _ => Action::MoveFile,
@@ -102,17 +130,23 @@ impl MovePlan {
     }
 
     /// Baut den Plan aus einem Journal neu, indem das (noch vorhandene)
-    /// Quell-Manifest gelesen wird — für die Wiederaufnahme (§7.2).
+    /// Quell-Manifest gelesen wird — für die Wiederaufnahme (§7.2). Die
+    /// ursprüngliche Komponentenwahl wird aus den Journal-Einträgen abgeleitet,
+    /// damit die Fortsetzung exakt dieselben Komponenten bewegt.
     pub fn rebuild_from_source(
         journal: &crate::mover::journal::Journal,
-        delete_shadercache: bool,
     ) -> std::io::Result<MovePlan> {
         let src_apps = journal.source_library.join("steamapps");
         let manifest_path = src_apps.join(format!("appmanifest_{}.acf", journal.appid));
         let manifest = crate::steam::manifest::read(&manifest_path)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         let game = Game::from_manifest(manifest, &journal.source_library, &src_apps);
-        Ok(MovePlan::new(&game, &journal.target_library, delete_shadercache))
+        let choice = ComponentChoice {
+            compatdata: journal.components.contains_key("compatdata"),
+            workshop: journal.components.contains_key("workshop"),
+            move_shadercache: journal.components.contains_key("shadercache"),
+        };
+        Ok(MovePlan::new(&game, &journal.target_library, choice))
     }
 
     /// Namen der Komponenten, die tatsächlich bewegt werden (für das Journal).
@@ -164,7 +198,7 @@ mod tests {
     fn plan_leer_wenn_nichts_vorhanden() {
         let lib = std::env::temp_dir().join(format!("barge_plan_{}", std::process::id()));
         let g = game_with("My Game", &lib);
-        let plan = MovePlan::new(&g, Path::new("/dst"), true);
+        let plan = MovePlan::new(&g, Path::new("/dst"), ComponentChoice::default());
         assert_eq!(plan.appid, 1234567);
         assert!(plan.items.is_empty()); // nichts existiert physisch
     }
