@@ -162,13 +162,17 @@ fn game_grid(ui: &mut egui::Ui, id: &str, games: &[GameRow], mut selected: Optio
 /// Zelle einer Komponenten-Spalte: Checkbox falls Komponente vorhanden, sonst
 /// ein dezenter Strich — mittig in der Spalte.
 fn comp_cell(ui: &mut egui::Ui, active: bool, val: &mut bool) {
-    ui.vertical_centered(|ui| {
-        if active {
-            ui.checkbox(val, "");
-        } else {
-            ui.weak("–");
-        }
-    });
+    // Beide Achsen zentrieren (horizontal + vertikal in der Zeilenhöhe).
+    ui.with_layout(
+        egui::Layout::centered_and_justified(egui::Direction::TopDown),
+        |ui| {
+            if active {
+                ui.checkbox(val, "");
+            } else {
+                ui.weak("–");
+            }
+        },
+    );
 }
 
 /// Schaltet eine Komponenten-Spalte für alle ausgewählten Spiele (mit dieser

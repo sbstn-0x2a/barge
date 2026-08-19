@@ -519,15 +519,19 @@ impl eframe::App for BargeApp {
                     egui::vec2(left_w, avail_h),
                     egui::Layout::top_down(egui::Align::Min),
                     |ui| {
-                        panels::source_panel(
-                            ui,
-                            &self.libraries,
-                            &mut self.source_idx,
-                            self.target_idx,
-                            self.grid_view,
-                            &mut self.selected,
-                            &mut self.comp_choice,
-                        );
+                        // Eigener id-Namensraum, damit die Scroll-Bereiche beider
+                        // Seiten unabhängig sind (id_salt der Tabelle allein reicht nicht).
+                        ui.push_id("source_side", |ui| {
+                            panels::source_panel(
+                                ui,
+                                &self.libraries,
+                                &mut self.source_idx,
+                                self.target_idx,
+                                self.grid_view,
+                                &mut self.selected,
+                                &mut self.comp_choice,
+                            );
+                        });
                     },
                 );
 
@@ -558,13 +562,15 @@ impl eframe::App for BargeApp {
                     egui::vec2(ui.available_width(), avail_h),
                     egui::Layout::top_down(egui::Align::Min),
                     |ui| {
-                        panels::target_panel(
-                            ui,
-                            &self.libraries,
-                            &mut self.target_idx,
-                            self.source_idx,
-                            self.grid_view,
-                        );
+                        ui.push_id("target_side", |ui| {
+                            panels::target_panel(
+                                ui,
+                                &self.libraries,
+                                &mut self.target_idx,
+                                self.source_idx,
+                                self.grid_view,
+                            );
+                        });
                     },
                 );
             });
