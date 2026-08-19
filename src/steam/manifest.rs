@@ -70,17 +70,17 @@ pub fn read(path: &Path) -> Result<Manifest, String> {
     let root = vdf::parse(&text).map_err(|e| format!("{}: {}", path.display(), e))?;
     let app = root
         .get("AppState")
-        .ok_or_else(|| format!("{}: kein AppState-Block", path.display()))?;
+        .ok_or_else(|| format!("{}: no AppState block", path.display()))?;
 
     let appid = app
         .str("appid")
         .and_then(|s| s.trim().parse::<u32>().ok())
-        .ok_or_else(|| format!("{}: appid fehlt oder ungültig", path.display()))?;
+        .ok_or_else(|| format!("{}: appid missing or invalid", path.display()))?;
 
     let installdir = app
         .str("installdir")
         .filter(|s| !s.is_empty())
-        .ok_or_else(|| format!("{}: installdir fehlt", path.display()))?
+        .ok_or_else(|| format!("{}: installdir missing", path.display()))?
         .to_string();
 
     Ok(Manifest {

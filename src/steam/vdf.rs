@@ -118,7 +118,7 @@ fn tokenize(input: &str) -> Result<Vec<Token>, String> {
                     }
                 }
                 if !closed {
-                    return Err("unbalanciertes Anführungszeichen".into());
+                    return Err("unbalanced quote".into());
                 }
                 tokens.push(Token::Str(s));
             }
@@ -163,8 +163,8 @@ pub fn parse(input: &str) -> Result<Value, String> {
 fn parse_pair(tokens: &[Token], pos: &mut usize) -> Result<(String, Value), String> {
     let key = match tokens.get(*pos) {
         Some(Token::Str(s)) => s.clone(),
-        Some(_) => return Err("Schlüssel erwartet, Klammer gefunden".into()),
-        None => return Err("unerwartetes Dateiende".into()),
+        Some(_) => return Err("expected key, found brace".into()),
+        None => return Err("unexpected end of file".into()),
     };
     *pos += 1;
 
@@ -182,7 +182,7 @@ fn parse_pair(tokens: &[Token], pos: &mut usize) -> Result<(String, Value), Stri
                         *pos += 1;
                         break;
                     }
-                    None => return Err("unbalancierte geschweifte Klammer".into()),
+                    None => return Err("unbalanced brace".into()),
                     _ => {
                         let (k, v) = parse_pair(tokens, pos)?;
                         pairs.push((k, v));
@@ -191,7 +191,7 @@ fn parse_pair(tokens: &[Token], pos: &mut usize) -> Result<(String, Value), Stri
             }
             Ok((key, Value::Obj(pairs)))
         }
-        _ => Err(format!("Wert für Schlüssel '{}' erwartet", key)),
+        _ => Err(format!("expected value for key '{}'", key)),
     }
 }
 

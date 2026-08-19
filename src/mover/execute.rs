@@ -57,7 +57,11 @@ pub fn execute<F: FnMut(&Stats, f64)>(
             if let Err(msg) = crate::mover::verify::verify_quick(&item.src, partial) {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
-                    format!("Verifikation fehlgeschlagen ({}): {}", item.kind.label(), msg),
+                    crate::i18n::trf(
+                        "Verifikation fehlgeschlagen ({}): {}",
+                        "Verification failed ({}): {}",
+                        &[item.kind.label(), &msg],
+                    ),
                 ));
             }
         }

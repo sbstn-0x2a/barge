@@ -192,7 +192,10 @@ impl BargeApp {
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             let picked = rfd::FileDialog::new()
-                .set_title("Steam-Library-Ordner wählen (Root oder steamapps/)")
+                .set_title(tr(
+                    "Steam-Library-Ordner wählen (Root oder steamapps/)",
+                    "Choose a Steam library folder (root or steamapps/)",
+                ))
                 .pick_folder();
             let _ = tx.send(picked);
         });

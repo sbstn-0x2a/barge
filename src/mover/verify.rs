@@ -14,24 +14,29 @@ use std::path::Path;
 /// Vergleicht zwei Bäume schnell. `Ok(())` bei Übereinstimmung, sonst die erste
 /// Abweichung als Text.
 pub fn verify_quick(src: &Path, dst: &Path) -> Result<(), String> {
+    use crate::i18n::trf;
     let s = collect(src)?;
     let d = collect(dst)?;
     if s.len() != d.len() {
-        return Err(format!(
+        return Err(trf(
             "Dateianzahl weicht ab (Quelle {}, Ziel {})",
-            s.len(),
-            d.len()
+            "file count differs (source {}, target {})",
+            &[&s.len().to_string(), &d.len().to_string()],
         ));
     }
     for (rel, (len, mtime)) in &s {
         match d.get(rel) {
-            None => return Err(format!("fehlt am Ziel: {}", rel)),
+            None => return Err(trf("fehlt am Ziel: {}", "missing at target: {}", &[rel])),
             Some((dlen, dmtime)) => {
                 if dlen != len {
-                    return Err(format!("Größe weicht ab: {} ({} vs {} Bytes)", rel, len, dlen));
+                    return Err(trf(
+                        "Größe weicht ab: {} ({} vs {} Bytes)",
+                        "size differs: {} ({} vs {} bytes)",
+                        &[rel, &len.to_string(), &dlen.to_string()],
+                    ));
                 }
                 if dmtime != mtime {
-                    return Err(format!("mtime weicht ab: {}", rel));
+                    return Err(trf("mtime weicht ab: {}", "mtime differs: {}", &[rel]));
                 }
             }
         }
