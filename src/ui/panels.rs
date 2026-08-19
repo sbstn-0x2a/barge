@@ -18,6 +18,12 @@ enum ToggleCol {
     Shader,
 }
 
+/// Feste Höhe der Toolbar-Zeile über der Tabelle, damit Quelle und Ziel exakt
+/// auf gleicher Höhe beginnen.
+const TOOLBAR_H: f32 = 26.0;
+/// Höhe der (fixierten) Tabellen-Kopfzeile.
+const HEADER_H: f32 = 24.0;
+
 fn library_combo(ui: &mut egui::Ui, id: &str, libraries: &[LibraryView], idx: &mut usize) {
     let current = libraries.get(*idx).map(|l| l.label.as_str()).unwrap_or("—");
     egui::ComboBox::from_id_salt(id)
@@ -102,6 +108,7 @@ pub fn source_panel(
     disk_line(ui, lib);
 
     ui.horizontal(|ui| {
+        ui.set_min_height(TOOLBAR_H);
         if ui.small_button("Alle").clicked() {
             for r in lib.games.iter().filter(|r| r.blocked_reason.is_none()) {
                 selected.insert(r.appid);
@@ -112,7 +119,6 @@ pub fn source_panel(
         }
         ui.weak("· Spaltenkopf schaltet die Auswahl um");
     });
-    ui.add_space(4.0);
 
     // Kopfklick nur vormerken (die Body-Closure hält die &mut-Borrows auf
     // selected/comp_choice — der Header darf sie nicht gleichzeitig anfassen).
@@ -127,9 +133,9 @@ pub fn source_panel(
         .column(Column::auto()) // compat
         .column(Column::auto()) // workshop
         .column(Column::auto()) // shader
-        .header(24.0, |mut header| {
+        .header(HEADER_H, |mut header| {
             header.col(|ui| {
-                ui.strong("✓");
+                ui.strong("");
             });
             header.col(|ui| {
                 ui.strong("Spiel");
@@ -183,14 +189,21 @@ pub fn source_panel(
                             }
                         }
                     });
-                    tr.col(|ui| match &row.blocked_reason {
-                        Some(reason) => {
-                            ui.add(egui::Label::new(egui::RichText::new(&row.name).weak()).truncate())
-                                .on_hover_text(reason);
-                        }
-                        None => {
-                            ui.add(egui::Label::new(&row.name).truncate());
-                        }
+                    tr.col(|ui| {
+                        ui.horizontal(|ui| {
+                            match &row.blocked_reason {
+                                Some(reason) => {
+                                    ui.add(egui::Label::new(egui::RichText::new(&row.name).weak()).truncate())
+                                        .on_hover_text(reason);
+                                }
+                                None => {
+                                    ui.add(egui::Label::new(&row.name).truncate());
+                                }
+                            }
+                            if row.is_tool {
+                                ui.weak("[Tool]");
+                            }
+                        });
                     });
                     tr.col(|ui| {
                         ui.monospace(human_size(row.size));
@@ -215,7 +228,9 @@ pub fn source_panel(
     }
 }
 
-/// Rechtes Panel: Ziel-Library + (schreibgeschützte) Spieleliste.
+/// Rechtes Panel: Ziel-Library + (schreibgeschützte) Spieleliste. Gleicher
+/// Aufbau wie die Quelle (Toolbar-Höhe + Kopfzeile), damit beide Tabellen auf
+/// derselben Höhe beginnen.
 pub fn target_panel(
     ui: &mut egui::Ui,
     libraries: &[LibraryView],
@@ -229,19 +244,43 @@ pub fn target_panel(
     library_combo(ui, "target_lib", libraries, target_idx);
     let lib = &libraries[*target_idx];
     disk_line(ui, lib);
-    if *target_idx == source_idx {
-        ui.colored_label(egui::Color32::LIGHT_RED, "= Quelle (bitte anderes Ziel wählen)");
-    }
-    ui.separator();
 
-    egui::ScrollArea::vertical()
-        .auto_shrink([false, false])
-        .id_salt("target_scroll")
-        .show(ui, |ui| {
+    // Toolbar-Zeile gleicher Höhe wie in der Quelle (statt Separator).
+    ui.horizontal(|ui| {
+        ui.set_min_height(TOOLBAR_H);
+        if *target_idx == source_idx {
+            ui.colored_label(egui::Color32::LIGHT_RED, "= Quelle (bitte anderes Ziel wählen)");
+        } else {
+            ui.weak("Vorschau — bereits im Ziel installierte Spiele");
+        }
+    });
+
+    TableBuilder::new(ui)
+        .striped(true)
+        .id_salt("target_table")
+        .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+        .column(Column::remainder().at_least(120.0))
+        .column(Column::auto())
+        .header(HEADER_H, |mut header| {
+            header.col(|ui| {
+                ui.strong("Spiel");
+            });
+            header.col(|ui| {
+                ui.strong("Größe");
+            });
+        })
+        .body(|mut body| {
             for row in &lib.games {
-                ui.horizontal(|ui| {
-                    ui.add(egui::Label::new(&row.name).truncate());
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                body.row(20.0, |mut tr| {
+                    tr.col(|ui| {
+                        ui.horizontal(|ui| {
+                            ui.add(egui::Label::new(&row.name).truncate());
+                            if row.is_tool {
+                                ui.weak("[Tool]");
+                            }
+                        });
+                    });
+                    tr.col(|ui| {
                         ui.monospace(human_size(row.size));
                     });
                 });

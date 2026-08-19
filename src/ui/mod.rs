@@ -32,6 +32,7 @@ pub struct GameRow {
     pub name: String,
     pub size: u64,
     pub blocked_reason: Option<String>,
+    pub is_tool: bool,
     /// Vorhandene, sichtbar zu machende Zusatzkomponenten (§4).
     pub has_compatdata: bool,
     pub has_workshop: bool,
@@ -61,6 +62,8 @@ pub struct BargeApp {
     /// Quelle/Ziel nur beim ersten Laden vorbelegen, danach die Wahl des
     /// Nutzers über Reloads hinweg erhalten.
     initialized: bool,
+    /// Schrift-/Zoom-Faktor (persistiert, §4K-Displays).
+    zoom_factor: f32,
 }
 
 /// Aggregierte Kennzahlen der aktuellen Auswahl (für die Zusammenfassung).
@@ -72,6 +75,8 @@ pub struct SelectionSummary {
 
 impl BargeApp {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        let cfg = crate::config::Config::load();
+        cc.egui_ctx.set_zoom_factor(cfg.zoom_factor);
         let load_rx = Some(spawn_load(cc.egui_ctx.clone()));
         BargeApp {
             load_rx,
@@ -86,7 +91,15 @@ impl BargeApp {
             job: Job::Idle,
             incomplete_jobs: crate::mover::journal::Journal::scan_incomplete().len(),
             initialized: false,
+            zoom_factor: cfg.zoom_factor,
         }
+    }
+
+    /// Setzt den Zoom, wendet ihn an und speichert ihn.
+    fn set_zoom(&mut self, ctx: &egui::Context, z: f32) {
+        self.zoom_factor = z.clamp(0.7, 2.5);
+        ctx.set_zoom_factor(self.zoom_factor);
+        crate::config::Config { zoom_factor: self.zoom_factor }.save();
     }
 
     fn selection_summary(&self) -> SelectionSummary {
@@ -170,23 +183,38 @@ impl eframe::App for BargeApp {
 
         let loading = self.load_rx.is_some();
 
+        let mut new_zoom: Option<f32> = None;
         egui::TopBottomPanel::top("header").show(ctx, |ui| {
             ui.add_space(4.0);
             ui.horizontal(|ui| {
                 ui.heading("barge");
                 ui.label("— Steam-Spiele sicher und gedrosselt verschieben");
+                // Zoom-Regler rechts (persistiert).
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("A +").on_hover_text("Schrift größer").clicked() {
+                        new_zoom = Some(self.zoom_factor + 0.1);
+                    }
+                    ui.label(format!("{:.0} %", self.zoom_factor * 100.0));
+                    if ui.button("A -").on_hover_text("Schrift kleiner").clicked() {
+                        new_zoom = Some(self.zoom_factor - 0.1);
+                    }
+                    ui.label("Schrift:");
+                });
             });
             if self.incomplete_jobs > 0 {
                 ui.colored_label(
                     egui::Color32::from_rgb(0xd0, 0x90, 0x30),
                     format!(
-                        "⚠ {} unvollendete(r) Move-Job(s) — im Terminal `barge recover`",
+                        "(!) {} unvollendete(r) Move-Job(s) — im Terminal `barge recover`",
                         self.incomplete_jobs
                     ),
                 );
             }
             ui.add_space(4.0);
         });
+        if let Some(z) = new_zoom {
+            self.set_zoom(ctx, z);
+        }
 
         if loading {
             egui::CentralPanel::default().show(ctx, |ui| {
@@ -221,14 +249,14 @@ impl eframe::App for BargeApp {
                     ui.label("Move abgeschlossen — siehe Ergebnis-Fenster.");
                 }
                 Job::Idle => {
+                    settings::bar(ui, &mut self.limit_mbps, &mut self.dry_run, &summary);
+                    ui.add_space(8.0);
                     ui.vertical_centered(|ui| {
-                        settings::bar(ui, &mut self.limit_mbps, &mut self.dry_run, &summary);
-                        ui.add_space(8.0);
                         let same = self.source_idx == self.target_idx;
                         let can_go = summary.count > 0 && !same;
-                        let label = if self.dry_run { "Trockenlauf  ▶" } else { "Verschieben  →" };
-                        let btn = egui::Button::new(egui::RichText::new(label).size(18.0))
-                            .min_size(egui::vec2(260.0, 46.0));
+                        let label = if self.dry_run { "Trockenlauf" } else { "Verschieben" };
+                        let btn = egui::Button::new(egui::RichText::new(label).size(19.0))
+                            .min_size(egui::vec2(280.0, 48.0));
                         if ui.add_enabled(can_go, btn).clicked() {
                             start_move = true;
                         }
@@ -279,7 +307,7 @@ impl eframe::App for BargeApp {
                     });
                     ui.add_space(6.0);
                     ui.horizontal(|ui| {
-                        if ui.button("📋 In Zwischenablage kopieren").clicked() {
+                        if ui.button("In Zwischenablage kopieren").clicked() {
                             copy_to_clipboard = Some(msg.clone());
                         }
                         if ui.button("OK").clicked() {
@@ -354,6 +382,7 @@ fn spawn_load(ctx: egui::Context) -> Receiver<Result<Vec<LibraryView>, String>> 
                         name: g.manifest.name.clone(),
                         size,
                         blocked_reason: g.manifest.blocked_reason(),
+                        is_tool: g.manifest.is_tool(),
                         has_compatdata: present(ComponentKind::Compatdata),
                         has_workshop: present(ComponentKind::WorkshopContent),
                         has_shadercache: present(ComponentKind::Shadercache),

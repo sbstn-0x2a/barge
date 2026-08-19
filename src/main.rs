@@ -5,6 +5,7 @@
 //! und Installationszustand. Damit ist das Datenmodell validierbar, bevor
 //! Kopier-Engine (§6) und GUI (§8) folgen.
 
+mod config;
 mod mover;
 mod steam;
 mod ui;
