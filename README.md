@@ -18,9 +18,30 @@ Link-Verlust des getunnelten PCIe-Geräts und damit zum kompletten System-Freeze
 ergänzt um die Steam-Metadaten (Manifest, Proton-Prefix, Workshop-Mods), die beim
 manuellen Verschieben leicht vergessen werden.
 
-## Status
+## Funktionen
 
-In Arbeit. Umsetzung in Stufen (siehe `docs/design.md`, §11):
+- **Zwei-Panel-Oberfläche** (Quelle/Ziel) mit Cover-Bildern (Liste **oder**
+  Kachelansicht), Auswahl per Klick, Größen und Disk-Auslastung.
+- **Gedrosseltes, sequenzielles Kopieren** (einstellbare max. Rate,
+  `copy_file_range`, Sparse-Erhalt, `fsync`) — bewegt *alle* Komponenten pro
+  Spiel: Spieldaten, Manifest, `compatdata` (Savegames + Proton-Prefix),
+  Workshop-Mods; Shadercache/Downloading nach Wahl.
+- **Transaktionssicher**: `.partial` → atomares `rename` → erst dann Quelle
+  löschen. Ein Absturz mitten im Move bleibt folgenlos; **Recovery direkt in der
+  GUI** (fortsetzen / verwerfen / abschließen).
+- **Sicherheits-Vorbedingungen** vor jedem Move (Steam aus, genug Platz, Ziel
+  registriert, kein Konflikt …) und **Trockenlauf**.
+- **Schnelle Verifikation** nach dem Kopieren, **Warteschlange** für mehrere
+  Spiele, **Prefix-Fix** für Proton-Laufwerksbuchstaben.
+- Persistente Einstellungen (Fenstergröße, Zoom, Limit, Theme, Panel-Aufteilung,
+  Quelle/Ziel), **Themes** (Dunkel/Hell/Kontrast), Log-/Config-Zugriff.
+- Vollständig auch als **CLI** nutzbar (`list`, `copy`, `move`, `recover`).
+
+<!-- Screenshot: docs/screenshot.png (Platzhalter) -->
+
+## Umsetzung
+
+Alle Stufen abgeschlossen:
 
 - [x] **Stufe 1 — Discovery + Parsing (CLI).** Libraries finden, Spiele mit
       realer On-Disk-Größe und Installationszustand auflisten. *Nutzbar.*
@@ -57,12 +78,15 @@ Fertige Pakete hängen an den [GitHub-Releases](https://github.com/sbstn-0x2a/ba
 - **`.deb`** (Debian/Ubuntu) und **`.rpm`** (Fedora/openSUSE).
 - **AUR** (Arch): `PKGBUILD` unter `packaging/`.
 
-## Build & Run
+## Aus dem Quellcode bauen
 
-Reines Rust, Stufe 1 ist dependency-frei (nur `std` + libc-Syscalls):
+Rust (Edition 2021). Build-Abhängigkeiten der GUI: OpenGL-, Wayland/X11- und
+`libxkbcommon`-Dev-Pakete (unter Fedora/Nobara: `rust cargo`, dazu die üblichen
+Desktop-Bibliotheken). Die Kern-Engine (Stufen 1–3) ist bewusst dependency-arm;
+GUI/Extras nutzen `eframe`, `egui_extras`, `serde`, `image`, `rfd`, `ureq`.
 
 ```bash
-cargo build
+cargo build --release
 cargo run                        # grafische Oberfläche starten (Standard)
 cargo run -- list                # alle erkannten Libraries + Spiele auflisten (CLI)
 cargo run -- list <PFAD>         # bestimmten Library-Root (oder steamapps/) auflisten

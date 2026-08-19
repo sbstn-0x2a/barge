@@ -1,50 +1,53 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
-  <!-- barge — Lastkahn: flacher Frachtkahn mit gestapelter Ladung auf Wasser -->
+  <!-- Konzept D: zwei Kähne, dazwischen ein Kran, der Ladung umsetzt -->
   <defs>
-    <linearGradient id="water" x1="0" y1="0" x2="0" y2="1">
+    <linearGradient id="waterD" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#173a56"/>
       <stop offset="1" stop-color="#0c1e2e"/>
     </linearGradient>
-    <linearGradient id="hull" x1="0" y1="0" x2="0" y2="1">
+    <linearGradient id="hullD" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#39434f"/>
       <stop offset="1" stop-color="#232b33"/>
     </linearGradient>
-    <linearGradient id="crate" x1="0" y1="0" x2="0" y2="1">
+    <linearGradient id="crateD" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#f2b23a"/>
       <stop offset="1" stop-color="#d98e16"/>
     </linearGradient>
   </defs>
+  <rect width="256" height="256" rx="52" fill="url(#waterD)"/>
 
-  <!-- Hintergrund -->
-  <rect x="0" y="0" width="256" height="256" rx="52" fill="url(#water)"/>
+  <!-- Kran (Portal), mittig -->
+  <g stroke="#171d23" stroke-width="3">
+    <!-- Beine -->
+    <path d="M104 78 L96 168" stroke="#414c58" stroke-width="9" fill="none" stroke-linecap="round"/>
+    <path d="M152 78 L160 168" stroke="#414c58" stroke-width="9" fill="none" stroke-linecap="round"/>
+    <!-- Querträger -->
+    <rect x="86" y="56" width="84" height="14" rx="4" fill="#4a5663"/>
+    <!-- Laufkatze -->
+    <rect x="140" y="52" width="18" height="10" rx="2" fill="#5a6672"/>
+  </g>
+  <!-- Seil -->
+  <line x1="149" y1="62" x2="149" y2="96" stroke="#cfd6dc" stroke-width="3"/>
+  <!-- hängende Ladung (unterwegs) -->
+  <rect x="131" y="96" width="36" height="32" rx="4" fill="url(#crateD)" stroke="#7a4e08" stroke-width="3"/>
+  <line x1="149" y1="96" x2="149" y2="128" stroke="#b9800f" stroke-width="2" opacity="0.6"/>
 
   <!-- Wellen -->
   <g fill="none" stroke="#2b6f9e" stroke-width="6" stroke-linecap="round" opacity="0.55">
-    <path d="M28 196 q16 -12 32 0 t32 0 t32 0 t32 0 t32 0 t32 0"/>
-    <path d="M40 216 q16 -12 32 0 t32 0 t32 0 t32 0 t32 0" opacity="0.7"/>
+    <path d="M26 210 q16 -12 32 0 t32 0 t32 0 t32 0 t32 0 t32 0"/>
+    <path d="M40 226 q16 -12 32 0 t32 0 t32 0 t32 0 t32 0" opacity="0.7"/>
   </g>
 
-  <!-- Ladung: gestapelte Container/Kisten -->
-  <g stroke="#7a4e08" stroke-width="3">
-    <rect x="70"  y="120" width="44" height="40" rx="4" fill="url(#crate)"/>
-    <rect x="118" y="120" width="44" height="40" rx="4" fill="url(#crate)"/>
-    <rect x="166" y="120" width="30" height="40" rx="4" fill="url(#crate)"/>
-    <rect x="94"  y="82"  width="44" height="38" rx="4" fill="url(#crate)"/>
-    <rect x="142" y="82"  width="30" height="38" rx="4" fill="url(#crate)"/>
+  <!-- linker Kahn (Quelle, noch mit Ladung) -->
+  <g>
+    <rect x="34" y="150" width="34" height="30" rx="4" fill="url(#crateD)" stroke="#7a4e08" stroke-width="3"/>
+    <path d="M20 180 L86 180 L76 202 Q74 206 68 206 L38 206 Q32 206 30 202 Z" fill="url(#hullD)" stroke="#171d23" stroke-width="3"/>
+    <rect x="20" y="178" width="66" height="7" rx="3" fill="#4a5663"/>
   </g>
-  <!-- Container-Rippen -->
-  <g stroke="#b9800f" stroke-width="2" opacity="0.6">
-    <line x1="84"  y1="124" x2="84"  y2="156"/>
-    <line x1="100" y1="124" x2="100" y2="156"/>
-    <line x1="132" y1="124" x2="132" y2="156"/>
-    <line x1="148" y1="124" x2="148" y2="156"/>
-    <line x1="108" y1="86"  x2="108" y2="116"/>
-    <line x1="124" y1="86"  x2="124" y2="116"/>
+  <!-- rechter Kahn (Ziel, noch leer) -->
+  <g>
+    <path d="M170 180 L236 180 L226 202 Q224 206 218 206 L188 206 Q182 206 180 202 Z" fill="url(#hullD)" stroke="#171d23" stroke-width="3"/>
+    <rect x="170" y="178" width="66" height="7" rx="3" fill="#4a5663"/>
   </g>
-
-  <!-- Rumpf (flacher Kahn) -->
-  <path d="M44 160 L212 160 L196 196 Q194 200 188 200 L68 200 Q62 200 60 196 Z" fill="url(#hull)" stroke="#171d23" stroke-width="3"/>
-  <!-- Deckskante -->
-  <rect x="44" y="158" width="168" height="8" rx="3" fill="#4a5663"/>
 </svg>
