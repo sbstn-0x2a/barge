@@ -1,3 +1,9 @@
 # Claudes privates Arbeitsverzeichnis — darf NIEMALS hochgeladen werden.
 # Schließt sowohl den Ordner selbst als auch seinen gesamten Inhalt aus.
 .claude/
+
+# Rust-Build-Artefakte (Handout §0)
+/target
+*.AppImage
+
+# Cargo.lock wird bewusst eingecheckt: barge ist eine Anwendung, keine Library.

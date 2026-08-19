@@ -1,0 +1,17 @@
+[package]
+name = "barge"
+version = "0.1.0"
+edition = "2021"
+description = "Move Steam games between libraries, safely and at your own pace"
+license = "GPL-3.0"
+repository = "https://github.com/sbstn-0x2a/barge"
+rust-version = "1.75"
+
+# Stufe 1 (Discovery + Parsing, CLI) ist bewusst dependency-frei gehalten:
+# nur std + eine Handvoll libc-Syscalls (statvfs) via `extern "C"`.
+# Die GUI-Crates aus dem Handout (§9: eframe, egui_extras, rfd, ...) kommen
+# erst mit Stufe 5 dazu.
+[dependencies]
+
+[profile.release]
+opt-level = 2
