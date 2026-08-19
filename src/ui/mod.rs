@@ -201,6 +201,8 @@ impl eframe::App for BargeApp {
                     ui.label("Schrift:");
                 });
             });
+            // Optionszeile zentriert direkt unter dem Titel (§8.1).
+            settings::options_row(ui, &mut self.limit_mbps, &mut self.dry_run);
             if self.incomplete_jobs > 0 {
                 ui.colored_label(
                     egui::Color32::from_rgb(0xd0, 0x90, 0x30),
@@ -249,9 +251,17 @@ impl eframe::App for BargeApp {
                     ui.label("Move abgeschlossen — siehe Ergebnis-Fenster.");
                 }
                 Job::Idle => {
-                    settings::bar(ui, &mut self.limit_mbps, &mut self.dry_run, &summary);
-                    ui.add_space(8.0);
                     ui.vertical_centered(|ui| {
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "Auswahl: {} Spiel(e) · {}",
+                                summary.count,
+                                crate::util::human_size(summary.bytes)
+                            ))
+                            .size(18.0)
+                            .strong(),
+                        );
+                        ui.add_space(8.0);
                         let same = self.source_idx == self.target_idx;
                         let can_go = summary.count > 0 && !same;
                         let label = if self.dry_run { "Trockenlauf" } else { "Verschieben" };
