@@ -68,11 +68,19 @@ pub struct BargeApp {
     initialized: bool,
     /// Schrift-/Zoom-Faktor (persistiert, §4K-Displays).
     zoom_factor: f32,
-    /// Zuletzt gesehene Fenster-Innengröße (Punkte) und Debounce fürs Speichern.
+    /// Fenster-Innengröße in **logischen Pixeln** (nicht egui-Punkten).
     window_size: (f32, f32),
-    last_size_save: Instant,
+    /// Breite des Quell-Panels (egui-Punkte).
+    panel_w: f32,
+    /// Zuletzt gespeicherter Limit-Wert (zum Erkennen von Änderungen).
+    last_limit: u64,
+    /// Ausstehende, noch nicht gespeicherte Einstellungsänderung.
+    dirty: bool,
+    last_save: Instant,
     /// Läuft gerade ein Ordnerdialog (Hintergrund-Thread)?
     dialog_rx: Option<Receiver<Option<PathBuf>>>,
+    /// Fehlermeldung, die als eigenes Fenster mit OK gezeigt wird.
+    error_modal: Option<String>,
 }
 
 /// Aggregierte Kennzahlen der aktuellen Auswahl (für die Zusammenfassung).
@@ -96,7 +104,7 @@ impl BargeApp {
             target_idx: 0,
             selected: HashSet::new(),
             comp_choice: HashMap::new(),
-            limit_mbps: 250,
+            limit_mbps: cfg.limit_mbps,
             dry_run: false,
             verify: true,
             job: Job::Idle,
@@ -104,8 +112,12 @@ impl BargeApp {
             initialized: false,
             zoom_factor: cfg.zoom_factor,
             window_size: (cfg.window_w, cfg.window_h),
-            last_size_save: Instant::now(),
+            panel_w: cfg.panel_w,
+            last_limit: cfg.limit_mbps,
+            dirty: false,
+            last_save: Instant::now(),
             dialog_rx: None,
+            error_modal: None,
         }
     }
 
@@ -116,7 +128,18 @@ impl BargeApp {
         cfg.zoom_factor = self.zoom_factor;
         cfg.window_w = self.window_size.0;
         cfg.window_h = self.window_size.1;
+        cfg.panel_w = self.panel_w;
+        cfg.limit_mbps = self.limit_mbps;
         cfg.save();
+    }
+
+    /// Speichert entprellt, wenn eine Einstellung geändert wurde.
+    fn flush_if_dirty(&mut self) {
+        if self.dirty && self.last_save.elapsed() > Duration::from_millis(500) {
+            self.save_config();
+            self.dirty = false;
+            self.last_save = Instant::now();
+        }
     }
 
     /// Öffnet (in einem Hintergrund-Thread) den Ordnerdialog zum Hinzufügen
@@ -151,31 +174,36 @@ impl BargeApp {
                 self.reload(ctx);
             }
             None => {
-                self.load_error =
-                    Some(format!("Kein gültiger Steam-Library-Ordner: {}", path.display()));
+                self.error_modal = Some(format!(
+                    "Kein gültiger Steam-Library-Ordner:\n{}\n\nErwartet wird ein Ordner mit \
+                     einem Unterordner „steamapps/“ (oder direkt das steamapps/-Verzeichnis).",
+                    path.display()
+                ));
             }
         }
     }
 
-    /// Setzt den Zoom, wendet ihn an und speichert die Config.
+    /// Setzt den Zoom, wendet ihn an und merkt die Änderung vor.
     fn set_zoom(&mut self, ctx: &egui::Context, z: f32) {
         self.zoom_factor = z.clamp(0.7, 2.5);
         ctx.set_zoom_factor(self.zoom_factor);
-        self.save_config();
+        self.dirty = true;
     }
 
-    /// Verfolgt die Fenstergröße und speichert sie entprellt (§Stufe 6).
+    /// Verfolgt die Fenstergröße. `screen_rect` liefert egui-Punkte; für das
+    /// Wiederherstellen via `with_inner_size` brauchen wir logische Pixel, also
+    /// mit dem Zoomfaktor multiplizieren (Punkte = Pixel / Zoom).
     fn track_window_size(&mut self, ctx: &egui::Context) {
-        let sz = ctx.screen_rect().size();
-        if sz.x < 100.0 || sz.y < 100.0 {
+        let pts = ctx.screen_rect().size();
+        if pts.x < 100.0 || pts.y < 100.0 {
             return;
         }
-        if (sz.x - self.window_size.0).abs() > 2.0 || (sz.y - self.window_size.1).abs() > 2.0 {
-            self.window_size = (sz.x, sz.y);
-            if self.last_size_save.elapsed() > Duration::from_millis(700) {
-                self.save_config();
-                self.last_size_save = Instant::now();
-            }
+        let logical = (pts.x * self.zoom_factor, pts.y * self.zoom_factor);
+        if (logical.0 - self.window_size.0).abs() > 2.0
+            || (logical.1 - self.window_size.1).abs() > 2.0
+        {
+            self.window_size = logical;
+            self.dirty = true;
         }
     }
 
@@ -317,6 +345,11 @@ impl eframe::App for BargeApp {
         if open_dialog {
             self.open_add_library_dialog();
         }
+        // Limit-Änderung (aus der Optionszeile) erkennen und vormerken.
+        if self.limit_mbps != self.last_limit {
+            self.last_limit = self.limit_mbps;
+            self.dirty = true;
+        }
 
         if loading {
             egui::CentralPanel::default().show(ctx, |ui| {
@@ -386,9 +419,9 @@ impl eframe::App for BargeApp {
             ui.add_space(6.0);
         });
 
-        egui::SidePanel::left("source")
+        let src_resp = egui::SidePanel::left("source")
             .resizable(true)
-            .default_width(480.0)
+            .default_width(self.panel_w)
             .show(ctx, |ui| {
                 panels::source_panel(
                     ui,
@@ -399,6 +432,12 @@ impl eframe::App for BargeApp {
                     &mut self.comp_choice,
                 );
             });
+        // Vom Nutzer gezogene Panelbreite merken (persistieren).
+        let w = src_resp.response.rect.width();
+        if (w - self.panel_w).abs() > 2.0 {
+            self.panel_w = w;
+            self.dirty = true;
+        }
 
         egui::CentralPanel::default().show(ctx, |ui| {
             panels::target_panel(ui, &self.libraries, &mut self.target_idx, self.source_idx);
@@ -449,6 +488,30 @@ impl eframe::App for BargeApp {
         if do_reload {
             self.reload(ctx);
         }
+
+        // --- Fehler-Fenster (z. B. ungültige Bibliothek) mit OK-Rückkehr
+        if let Some(msg) = self.error_modal.clone() {
+            let mut dismiss = false;
+            egui::Window::new("Fehler")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .show(ctx, |ui| {
+                    ui.colored_label(egui::Color32::LIGHT_RED, msg);
+                    ui.add_space(8.0);
+                    ui.vertical_centered(|ui| {
+                        if ui.button("OK").clicked() {
+                            dismiss = true;
+                        }
+                    });
+                });
+            if dismiss {
+                self.error_modal = None;
+            }
+        }
+
+        // Geänderte Einstellungen entprellt speichern.
+        self.flush_if_dirty();
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
@@ -516,10 +579,18 @@ fn spawn_load(ctx: egui::Context) -> Receiver<Result<Vec<LibraryView>, String>> 
                         g.components.iter().any(|c| c.kind == k && c.present)
                     };
                     let cover = cache_root.as_ref().and_then(|cr| {
-                        let p = cr
-                            .join(g.manifest.appid.to_string())
-                            .join("library_600x900.jpg");
-                        p.is_file().then_some(p)
+                        let id = g.manifest.appid.to_string();
+                        let dir = cr.join(&id);
+                        // Bevorzugt das Hochkant-Cover; Fallbacks für ältere
+                        // Layouts bzw. fehlende Portraits.
+                        let candidates = [
+                            dir.join("library_600x900.jpg"),
+                            dir.join("library_600x900_2x.jpg"),
+                            cr.join(format!("{}_library_600x900.jpg", id)),
+                            dir.join("header.jpg"),
+                            cr.join(format!("{}_header.jpg", id)),
+                        ];
+                        candidates.into_iter().find(|p| p.is_file())
                     });
                     GameRow {
                         appid: g.manifest.appid,

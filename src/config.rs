@@ -10,9 +10,14 @@ use serde::{Deserialize, Serialize};
 pub struct Config {
     /// egui-Zoomfaktor (1.0 = 100 %).
     pub zoom_factor: f32,
-    /// Zuletzt genutzte Fenster-Innengröße in Punkten.
+    /// Zuletzt genutzte Fenster-Innengröße in **logischen Pixeln** (nicht
+    /// egui-Punkten — die skalieren mit dem Zoom).
     pub window_w: f32,
     pub window_h: f32,
+    /// Breite des Quell-Panels (egui-Punkte).
+    pub panel_w: f32,
+    /// Zuletzt eingestellte Bandbreiten-Obergrenze (0 = unbegrenzt).
+    pub limit_mbps: u64,
     /// Manuell hinzugefügte Library-Pfade (§8.3); werden beim Laden zusätzlich
     /// zu den erkannten Libraries berücksichtigt.
     pub extra_libraries: Vec<String>,
@@ -24,6 +29,8 @@ impl Default for Config {
             zoom_factor: 1.0,
             window_w: 980.0,
             window_h: 660.0,
+            panel_w: 480.0,
+            limit_mbps: 250,
             extra_libraries: Vec::new(),
         }
     }
@@ -78,5 +85,8 @@ impl Config {
         }
         self.window_w = self.window_w.min(20000.0);
         self.window_h = self.window_h.min(20000.0);
+        if !self.panel_w.is_finite() || self.panel_w < 200.0 {
+            self.panel_w = 480.0;
+        }
     }
 }
